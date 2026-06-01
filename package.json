@@ -12,6 +12,7 @@
     "@expo/vector-icons": "^15.0.3",
     "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.34",
+    "expo-document-picker": "~14.0.8",
     "expo-router": "~6.0.24",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
