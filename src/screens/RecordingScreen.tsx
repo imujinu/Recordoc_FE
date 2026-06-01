@@ -5,51 +5,65 @@ import {
   TouchableOpacity,
   SafeAreaView,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { styles } from '@/styles/RecordingScreen.styles';
 import { Colors } from '@/styles/theme';
 import StopRecordingModal from '@/components/StopRecordingModal';
-
-const MOCK_SCRIPTS = [
-  { id: 1, time: '00:00:03', text: '안녕하세요, 오늘 회의 시작하겠습니다.' },
-  { id: 2, time: '00:00:08', text: '지난번 안건에 대해서 먼저 이야기해볼까요?' },
-  { id: 3, time: '00:00:15', text: '네, 말씀하신 대로 3분기 목표치를 조정하는 방향으로...' },
-  { id: 4, time: '00:00:22', text: '그 부분은 마케팅 팀과 협의가 필요할 것 같습니다.' },
-];
+import { useRealtimeTranscription } from '@/hooks/useRealtimeTranscription';
+import { saveRealtimeTranscript } from '@/api/realtime';
 
 export default function RecordingScreen() {
   const router = useRouter();
-  const [isPaused, setIsPaused] = useState(false);
-  const [seconds, setSeconds] = useState(0);
-  const [scripts, setScripts] = useState(MOCK_SCRIPTS.slice(0, 2));
   const [stopModal, setStopModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  useEffect(() => {
-    if (isPaused) return;
-    const timer = setInterval(() => {
-      setSeconds((s) => s + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isPaused]);
+  const { isConnected, isPaused, segments, elapsedSeconds, start, pause, resume, stop } =
+    useRealtimeTranscription();
 
   useEffect(() => {
-    if (seconds === 15 && scripts.length < 3) {
-      setScripts(MOCK_SCRIPTS.slice(0, 3));
-    }
-    if (seconds === 22 && scripts.length < 4) {
-      setScripts(MOCK_SCRIPTS.slice(0, 4));
-    }
-    scrollRef.current?.scrollToEnd({ animated: true });
-  }, [seconds]);
+    start().catch((err: Error) => {
+      Alert.alert('녹음 오류', err.message, [{ text: '확인', onPress: () => router.back() }]);
+    });
+    return () => { stop().catch(() => {}); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (segments.length > 0) scrollRef.current?.scrollToEnd({ animated: true });
+  }, [segments]);
 
   const formatTime = (s: number) => {
     const h = Math.floor(s / 3600).toString().padStart(2, '0');
     const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
     const sec = (s % 60).toString().padStart(2, '0');
     return `${h}:${m}:${sec}`;
+  };
+
+  const handleStop = async () => {
+    setStopModal(false);
+    setIsSaving(true);
+    try {
+      const result = await stop();
+      await saveRealtimeTranscript({
+        domain_type: 'meeting',
+        duration_seconds: elapsedSeconds,
+        segments: result.map((seg, i) => ({
+          segment_index: i,
+          start_seconds: seg.chunkIndex * 5,
+          end_seconds: (seg.chunkIndex + 1) * 5,
+          text: seg.text,
+        })),
+      });
+      router.back();
+    } catch (err: unknown) {
+      setIsSaving(false);
+      const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
+      Alert.alert('저장 실패', msg, [{ text: '취소', onPress: () => router.back() }]);
+    }
   };
 
   const WaveBar = ({ active }: { active: boolean }) => (
@@ -72,7 +86,7 @@ export default function RecordingScreen() {
       <View style={styles.timerSection}>
         <View style={styles.timerRow}>
           <View style={[styles.recDot, isPaused && styles.recDotPaused]} />
-          <Text style={styles.timer}>{formatTime(seconds)}</Text>
+          <Text style={styles.timer}>{formatTime(elapsedSeconds)}</Text>
         </View>
         <Text style={styles.recordTitle}>
           {new Date().toLocaleDateString('ko-KR', {
@@ -86,7 +100,7 @@ export default function RecordingScreen() {
 
       <View style={styles.waveContainer}>
         {Array.from({ length: 32 }).map((_, i) => (
-          <WaveBar key={i} active={!isPaused && i < 18} />
+          <WaveBar key={i} active={isConnected && !isPaused && i < 18} />
         ))}
       </View>
 
@@ -105,15 +119,15 @@ export default function RecordingScreen() {
           style={styles.scriptScroll}
           showsVerticalScrollIndicator={false}
         >
-          {scripts.map((item) => (
-            <View key={item.id} style={styles.scriptItem}>
-              <Text style={styles.scriptTime}>{item.time}</Text>
-              <Text style={styles.scriptText}>{item.text}</Text>
+          {segments.map((seg, i) => (
+            <View key={i} style={styles.scriptItem}>
+              <Text style={styles.scriptTime}>{formatTime(seg.chunkIndex * 5)}</Text>
+              <Text style={styles.scriptText}>{seg.text}</Text>
             </View>
           ))}
-          {!isPaused && (
+          {isConnected && !isPaused && (
             <View style={styles.scriptItem}>
-              <Text style={styles.scriptTime}>{formatTime(seconds)}</Text>
+              <Text style={styles.scriptTime}>{formatTime(elapsedSeconds)}</Text>
               <Text style={[styles.scriptText, styles.scriptTyping]}>받아쓰는 중...</Text>
             </View>
           )}
@@ -133,7 +147,7 @@ export default function RecordingScreen() {
         <View style={styles.centerCol}>
           <TouchableOpacity
             style={[styles.mainBtn, isPaused && styles.mainBtnPaused]}
-            onPress={() => setIsPaused(!isPaused)}
+            onPress={() => (isPaused ? resume() : pause())}
           >
             <Ionicons
               name={isPaused ? 'mic' : 'pause'}
@@ -144,7 +158,11 @@ export default function RecordingScreen() {
           <Text style={styles.pauseLabel}>{isPaused ? '녹음 이어하기' : '일시정지'}</Text>
         </View>
         <View style={styles.controlSide}>
-          <TouchableOpacity style={styles.stopBtn} onPress={() => setStopModal(true)}>
+          <TouchableOpacity
+            style={styles.stopBtn}
+            onPress={() => setStopModal(true)}
+            disabled={isSaving}
+          >
             <View style={styles.stopIcon} />
           </TouchableOpacity>
           <Text style={styles.saveLabel}>저장</Text>
@@ -154,10 +172,7 @@ export default function RecordingScreen() {
       <StopRecordingModal
         visible={stopModal}
         onCancel={() => setStopModal(false)}
-        onConfirm={() => {
-          setStopModal(false);
-          router.back();
-        }}
+        onConfirm={handleStop}
       />
     </SafeAreaView>
   );
