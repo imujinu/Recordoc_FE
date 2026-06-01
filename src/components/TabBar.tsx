@@ -7,8 +7,8 @@ import { Colors } from '@/styles/theme';
 
 const TABS = [
   { name: 'index', label: '홈', icon: 'home', iconOutline: 'home-outline' },
-  { name: 'my-work', label: '내 작업', icon: 'folder', iconOutline: 'folder-outline' },
-  { name: 'chat', label: '채팅', icon: 'chatbubble', iconOutline: 'chatbubble-outline' },
+  { name: 'my-work', label: '내 작업', icon: 'layers', iconOutline: 'layers-outline' },
+  { name: 'chat', label: '업로드', icon: 'cloud-upload', iconOutline: 'cloud-upload-outline' },
   { name: 'more', label: '더보기', icon: 'ellipsis-horizontal', iconOutline: 'ellipsis-horizontal' },
 ];
 
