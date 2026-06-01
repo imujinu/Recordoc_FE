@@ -11,6 +11,10 @@ export default function RootLayout() {
           name="recording"
           options={{ presentation: 'modal', headerShown: false }}
         />
+        <Stack.Screen
+          name="detail"
+          options={{ headerShown: false }}
+        />
       </Stack>
     </SafeAreaProvider>
   );
