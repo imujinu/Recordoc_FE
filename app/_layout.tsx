@@ -2,7 +2,7 @@ import 'react-native-gesture-handler';
 import { Stack, Redirect, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import { getToken } from '@/api/auth';
 
 export default function RootLayout() {
   const [status, setStatus] = useState<'loading' | 'auth' | 'unauth'>('loading');
@@ -10,8 +10,8 @@ export default function RootLayout() {
 
   useEffect(() => {
     (async () => {
-      const at = await SecureStore.getItemAsync('at');
-      const rt = await SecureStore.getItemAsync('rt');
+      const at = await getToken('at');
+      const rt = await getToken('rt');
       setStatus(at && rt ? 'auth' : 'unauth');
     })();
   }, [routeSegments]);

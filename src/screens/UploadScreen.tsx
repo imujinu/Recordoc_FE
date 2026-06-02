@@ -1,23 +1,43 @@
 import { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  SafeAreaView, ScrollView, Alert,
+  SafeAreaView, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import { uploadTranscript, type TranscriptLanguage, type DomainType } from '@/api/audio';
 
 const MINT = '#22C9A0';
 const MINT_LIGHT = '#E6F7F3';
 const BG = '#F7FAF9';
 
-type Language = '한국어' | '영어' | '자동 감지';
-type SpeakerSplit = '사용' | '사용 안함';
+type Language = '한국어' | '영어' | '한국어+영어';
 
 type SelectedFile = {
   name: string;
   size: string;
   duration: string;
   type: string;
+  uri: string;
+  mimeType: string;
+};
+
+const DOMAIN_OPTIONS = ['일반', '법률', '의학', '과학', 'IT', '종교'] as const;
+type DomainOption = typeof DOMAIN_OPTIONS[number];
+
+const DOMAIN_API_KEY: Record<DomainOption, DomainType> = {
+  '일반': 'general',
+  '법률': 'legal',
+  '의학': 'medical',
+  '과학': 'science',
+  'IT': 'it',
+  '종교': 'religion',
+};
+
+const LANGUAGE_API_MAP: Record<Language, TranscriptLanguage[]> = {
+  '한국어': ['ko'],
+  '영어': ['en'],
+  '한국어+영어': ['ko', 'en'],
 };
 
 const RECENT_FILES = [
@@ -28,7 +48,8 @@ const RECENT_FILES = [
 export default function UploadScreen() {
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [language, setLanguage] = useState<Language>('한국어');
-  const [speakerSplit, setSpeakerSplit] = useState<SpeakerSplit>('사용');
+  const [selectedDomain, setSelectedDomain] = useState<DomainOption>('일반');
+  const [isLoading, setIsLoading] = useState(false);
 
   const pickFile = async () => {
     try {
@@ -49,6 +70,8 @@ export default function UploadScreen() {
           size: sizeInMB,
           duration: '측정 중...',
           type: ext,
+          uri: asset.uri,
+          mimeType: asset.mimeType ?? 'audio/mpeg',
         });
       }
     } catch {
@@ -63,11 +86,38 @@ export default function UploadScreen() {
       size: file.size,
       duration: file.duration,
       type: ext,
+      uri: '',
+      mimeType: 'audio/mpeg',
     });
   };
 
-  const handleConvert = () => {
-    Alert.alert('변환 시작', `${selectedFile?.name} 변환을 시작합니다.`);
+  const selectDomain = (domain: DomainOption) => {
+    setSelectedDomain(domain);
+  };
+
+  const handleConvert = async () => {
+    if (!selectedFile) return;
+    if (!selectedFile.uri) {
+      Alert.alert('오류', '실제 파일을 선택해주세요.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await uploadTranscript({
+        fileUri: selectedFile.uri,
+        fileName: selectedFile.name,
+        mimeType: selectedFile.mimeType,
+        languages: LANGUAGE_API_MAP[language],
+        domainType: DOMAIN_API_KEY[selectedDomain],
+      });
+      Alert.alert('변환 시작', '변환 요청이 접수됐어요. 완료되면 목록에서 확인할 수 있어요.');
+      setSelectedFile(null);
+    } catch (e) {
+      Alert.alert('오류', e instanceof Error ? e.message : '변환 요청에 실패했습니다.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -85,7 +135,6 @@ export default function UploadScreen() {
         {!selectedFile ? (
           /* ───── B: 소스 선택 화면 ───── */
           <>
-            {/* 소스 선택 카드 */}
             <TouchableOpacity style={[styles.uploadCard, styles.uploadCardPrimary]} onPress={pickFile}>
               <View style={styles.cardIcon}>
                 <Ionicons name="folder-open-outline" size={22} color={MINT} />
@@ -121,7 +170,6 @@ export default function UploadScreen() {
 
             <View style={styles.divider} />
 
-            {/* 최근 파일 */}
             <Text style={styles.sectionTitle}>최근 파일</Text>
             {RECENT_FILES.map((file) => (
               <TouchableOpacity
@@ -174,7 +222,7 @@ export default function UploadScreen() {
             <View style={styles.optionSection}>
               <Text style={styles.optionTitle}>변환 언어</Text>
               <View style={styles.chipRow}>
-                {(['한국어', '영어', '자동 감지'] as Language[]).map((lang) => (
+                {(['한국어', '영어', '한국어+영어'] as Language[]).map((lang) => (
                   <TouchableOpacity
                     key={lang}
                     style={[styles.chip, language === lang && styles.chipSel]}
@@ -188,18 +236,18 @@ export default function UploadScreen() {
               </View>
             </View>
 
-            {/* 화자 분리 */}
+            {/* 주제 */}
             <View style={styles.optionSection}>
-              <Text style={styles.optionTitle}>화자 분리</Text>
+              <Text style={styles.optionTitle}>주제</Text>
               <View style={styles.chipRow}>
-                {(['사용', '사용 안함'] as SpeakerSplit[]).map((opt) => (
+                {DOMAIN_OPTIONS.map((domain) => (
                   <TouchableOpacity
-                    key={opt}
-                    style={[styles.chip, speakerSplit === opt && styles.chipSel]}
-                    onPress={() => setSpeakerSplit(opt)}
+                    key={domain}
+                    style={[styles.chip, selectedDomain === domain && styles.chipSel]}
+                    onPress={() => selectDomain(domain)}
                   >
-                    <Text style={[styles.chipTxt, speakerSplit === opt && styles.chipTxtSel]}>
-                      {opt}
+                    <Text style={[styles.chipTxt, selectedDomain === domain && styles.chipTxtSel]}>
+                      {domain}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -207,8 +255,15 @@ export default function UploadScreen() {
             </View>
 
             {/* 변환 시작 버튼 */}
-            <TouchableOpacity style={styles.convertBtn} onPress={handleConvert}>
-              <Text style={styles.convertBtnTxt}>변환 시작하기</Text>
+            <TouchableOpacity
+              style={[styles.convertBtn, isLoading && styles.convertBtnDisabled]}
+              onPress={handleConvert}
+              disabled={isLoading}
+            >
+              {isLoading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.convertBtnTxt}>변환 시작하기</Text>
+              }
             </TouchableOpacity>
           </>
         )}
@@ -228,7 +283,6 @@ const styles = StyleSheet.create({
   navTitle: { fontSize: 15, fontWeight: '600', color: '#222' },
   content: { padding: 18, gap: 10 },
 
-  // 소스 카드
   uploadCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     padding: 14, borderRadius: 14,
@@ -245,7 +299,6 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 13, fontWeight: '500', color: '#222', marginBottom: 2 },
   cardSub: { fontSize: 11, color: '#aaa' },
 
-  // 최근 파일
   divider: { height: 0.5, backgroundColor: '#eee', marginVertical: 4 },
   sectionTitle: { fontSize: 12, fontWeight: '500', color: '#888', marginBottom: 4 },
   recentItem: {
@@ -262,7 +315,6 @@ const styles = StyleSheet.create({
   recentMeta: { fontSize: 11, color: '#aaa', marginTop: 1 },
   recentSelect: { fontSize: 12, color: MINT, fontWeight: '500' },
 
-  // 업로드 완료 카드
   uploadedCard: {
     borderRadius: 14, borderWidth: 1.5, borderColor: MINT,
     backgroundColor: BG, padding: 14, marginBottom: 6,
@@ -282,10 +334,9 @@ const styles = StyleSheet.create({
   uploadedDone: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   uploadedDoneTxt: { fontSize: 12, color: MINT, fontWeight: '500' },
 
-  // 옵션
   optionSection: { marginBottom: 6 },
   optionTitle: { fontSize: 12, fontWeight: '500', color: '#888', marginBottom: 8 },
-  chipRow: { flexDirection: 'row', gap: 8 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 14, paddingVertical: 7,
     borderRadius: 10, borderWidth: 0.5, borderColor: '#ddd',
@@ -295,10 +346,10 @@ const styles = StyleSheet.create({
   chipTxt: { fontSize: 12, color: '#888' },
   chipTxtSel: { color: MINT, fontWeight: '500' },
 
-  // 변환 버튼
   convertBtn: {
     backgroundColor: MINT, paddingVertical: 14,
     borderRadius: 12, alignItems: 'center', marginTop: 8,
   },
+  convertBtnDisabled: { opacity: 0.6 },
   convertBtnTxt: { fontSize: 14, fontWeight: '600', color: '#fff' },
 });

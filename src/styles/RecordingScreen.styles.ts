@@ -129,4 +129,22 @@ export const styles = StyleSheet.create({
     backgroundColor: Colors.white,
   },
   pauseLabel: { fontSize: 11, color: Colors.textLight },
+
+  summaryCard: {
+    backgroundColor: '#f0faf6',
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#b8e8d8',
+    padding: 12,
+    marginBottom: 10,
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  summaryLabel: { fontSize: 11, fontWeight: '600', color: Colors.mint },
+  summaryText: { fontSize: 13, color: '#444', lineHeight: 19 },
+  expandBtn: { fontSize: 11, color: Colors.mint, fontWeight: '500' },
 });
