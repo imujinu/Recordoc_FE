@@ -15,14 +15,28 @@ import StopRecordingModal from '@/components/StopRecordingModal';
 import { useRealtimeTranscription } from '@/hooks/useRealtimeTranscription';
 import { saveRealtimeTranscript } from '@/api/realtime';
 
+// 백엔드 summary 구간 길이와 동일하게 유지 (RealtimeSummaryBuffer threshold_seconds)
+const SEGMENT_WINDOW_SECONDS = 25;
+
 export default function RecordingScreen() {
   const router = useRouter();
   const [stopModal, setStopModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [expandedSet, setExpandedSet] = useState<Set<number>>(new Set());
   const scrollRef = useRef<ScrollView>(null);
 
-  const { isConnected, isPaused, segments, elapsedSeconds, start, pause, resume, stop } =
-    useRealtimeTranscription();
+  const {
+    isConnected,
+    isPaused,
+    completedSegments,
+    currentTranscripts,
+    interimText,
+    elapsedSeconds,
+    start,
+    pause,
+    resume,
+    stop,
+  } = useRealtimeTranscription();
 
   useEffect(() => {
     start().catch((err: Error) => {
@@ -33,8 +47,8 @@ export default function RecordingScreen() {
   }, []);
 
   useEffect(() => {
-    if (segments.length > 0) scrollRef.current?.scrollToEnd({ animated: true });
-  }, [segments]);
+    scrollRef.current?.scrollToEnd({ animated: true });
+  }, [completedSegments, currentTranscripts, interimText]);
 
   const formatTime = (s: number) => {
     const h = Math.floor(s / 3600).toString().padStart(2, '0');
@@ -43,21 +57,47 @@ export default function RecordingScreen() {
     return `${h}:${m}:${sec}`;
   };
 
+  const toggleExpand = (idx: number) => {
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  };
+
   const handleStop = async () => {
     setStopModal(false);
     setIsSaving(true);
     try {
-      const result = await stop();
-      await saveRealtimeTranscript({
-        domain_type: 'meeting',
-        duration_seconds: elapsedSeconds,
-        segments: result.map((seg, i) => ({
-          segment_index: i,
-          start_seconds: seg.chunkIndex * 5,
-          end_seconds: (seg.chunkIndex + 1) * 5,
-          text: seg.text,
+      await stop();
+
+      // completedSegments: 백엔드가 summary를 보낸 완료 구간 → fullText를 저장
+      // currentTranscripts: 아직 summary가 안 온 나머지 텍스트 → 마지막 구간으로 저장
+      const segments = [
+        ...completedSegments.map((seg) => ({
+          segment_index: seg.segmentIndex,
+          start_seconds: seg.segmentIndex * SEGMENT_WINDOW_SECONDS,
+          end_seconds: (seg.segmentIndex + 1) * SEGMENT_WINDOW_SECONDS,
+          text: seg.fullText,
         })),
-      });
+        ...(currentTranscripts.length > 0
+          ? [{
+              segment_index: completedSegments.length,
+              start_seconds: completedSegments.length * SEGMENT_WINDOW_SECONDS,
+              end_seconds: elapsedSeconds,
+              text: currentTranscripts.join(' '),
+            }]
+          : []),
+      ];
+
+      if (segments.length > 0) {
+        await saveRealtimeTranscript({
+          domain_type: 'general',
+          title: new Date().toLocaleDateString('ko-KR') + ' 녹음',
+          duration_seconds: elapsedSeconds,
+          segments,
+        });
+      }
       router.back();
     } catch (err: unknown) {
       setIsSaving(false);
@@ -119,17 +159,42 @@ export default function RecordingScreen() {
           style={styles.scriptScroll}
           showsVerticalScrollIndicator={false}
         >
-          {segments.map((seg, i) => (
-            <View key={i} style={styles.scriptItem}>
-              <Text style={styles.scriptTime}>{formatTime(seg.chunkIndex * 5)}</Text>
-              <Text style={styles.scriptText}>{seg.text}</Text>
-            </View>
-          ))}
-          {isConnected && !isPaused && (
+          {/* 완료된 구간 — 백엔드 summary 이벤트로 교체된 카드 */}
+          {completedSegments.map((seg) => {
+            const expanded = expandedSet.has(seg.segmentIndex);
+            return (
+              <View key={seg.segmentIndex} style={styles.summaryCard}>
+                <View style={styles.summaryHeader}>
+                  <Text style={styles.summaryLabel}>구간 {seg.segmentIndex + 1}</Text>
+                  <TouchableOpacity onPress={() => toggleExpand(seg.segmentIndex)}>
+                    <Text style={styles.expandBtn}>{expanded ? '접기' : '전체 보기'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.summaryText}>
+                  {expanded ? seg.fullText : seg.summary}
+                </Text>
+              </View>
+            );
+          })}
+
+          {/* 현재 구간 — is_final=true 누적 텍스트 */}
+          {currentTranscripts.length > 0 && (
             <View style={styles.scriptItem}>
-              <Text style={styles.scriptTime}>{formatTime(elapsedSeconds)}</Text>
-              <Text style={[styles.scriptText, styles.scriptTyping]}>받아쓰는 중...</Text>
+              <Text style={styles.scriptText}>{currentTranscripts.join(' ')}</Text>
             </View>
+          )}
+
+          {/* 실시간 미리보기 — is_final=false, 계속 덮어쓰임 */}
+          {interimText ? (
+            <View style={styles.scriptItem}>
+              <Text style={[styles.scriptText, styles.scriptTyping]}>{interimText}</Text>
+            </View>
+          ) : (
+            isConnected && !isPaused && (
+              <View style={styles.scriptItem}>
+                <Text style={[styles.scriptText, styles.scriptTyping]}>받아쓰는 중...</Text>
+              </View>
+            )
           )}
         </ScrollView>
       </View>
