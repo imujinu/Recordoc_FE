@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 import { Audio } from 'expo-av';
 import { WS_BASE_URL } from '@/constants/config';
 
@@ -67,13 +67,18 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
         await recording.stopAndUnloadAsync();
         const uri = recording.getURI();
         if (uri) {
+          const file = new File(uri);
           if (wsRef.current?.readyState === WebSocket.OPEN) {
-            const base64 = await FileSystem.readAsStringAsync(uri, {
-              encoding: 'base64' as const,
-            });
-            wsRef.current.send(base64ToArrayBuffer(base64));
+            const base64 = await file.base64();
+            const buffer = base64ToArrayBuffer(base64);
+            console.log(
+              `[Realtime] 청크 #${chunkIndexRef.current} 전송 → 파일 ${file.size}B, base64 ${base64.length}자, 버퍼 ${buffer.byteLength}B`
+            );
+            wsRef.current.send(buffer);
+          } else {
+            console.warn('[Realtime] WebSocket이 OPEN 상태가 아니라 청크 전송 건너뜀');
           }
-          await FileSystem.deleteAsync(uri, { idempotent: true });
+          file.delete();
         }
       }
     } catch (e) {
@@ -106,7 +111,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
 
     // WebSocket 연결 및 "ready" 이벤트 수신 대기
     await new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(`${WS_BASE_URL}/audio/realtime?token=${token}`);
+      const ws = new WebSocket(`${WS_BASE_URL}/audio/realtime/connect?token=${token}`);
       wsRef.current = ws;
 
       ws.onerror = () => reject(new Error('WebSocket 연결 실패'));
@@ -127,6 +132,9 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
             setIsConnected(true);
             resolve();
           } else if (msg.type === 'transcript' && msg.text) {
+            console.log(
+              `[Realtime] 전사 수신 #${msg.chunk_index ?? '?'}: "${msg.text}"`
+            );
             const seg: RealtimeTranscriptSegment = {
               chunkIndex: msg.chunk_index ?? chunkIndexRef.current,
               text: msg.text,
@@ -183,13 +191,16 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
         await recording.stopAndUnloadAsync();
         const uri = recording.getURI();
         if (uri) {
+          const file = new File(uri);
           if (wsRef.current?.readyState === WebSocket.OPEN) {
-            const base64 = await FileSystem.readAsStringAsync(uri, {
-              encoding: 'base64' as const,
-            });
-            wsRef.current.send(base64ToArrayBuffer(base64));
+            const base64 = await file.base64();
+            const buffer = base64ToArrayBuffer(base64);
+            console.log(
+              `[Realtime] 마지막 청크 전송 → 파일 ${file.size}B, base64 ${base64.length}자, 버퍼 ${buffer.byteLength}B`
+            );
+            wsRef.current.send(buffer);
           }
-          await FileSystem.deleteAsync(uri, { idempotent: true });
+          file.delete();
         }
       } catch (e) {
         console.warn('[Realtime] 마지막 청크 전송 오류:', e);
