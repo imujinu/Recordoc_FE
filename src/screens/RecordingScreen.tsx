@@ -17,39 +17,10 @@ import StopRecordingModal from '@/components/StopRecordingModal';
 import { useRealtimeTranscription } from '@/hooks/useRealtimeTranscription';
 import { saveRealtimeTranscript } from '@/api/realtime';
 
-// 요약 청크는 아직 백엔드 미구현 — mock 데이터로 표시. 실시간 청크(live)는 서버 전사 결과 사용.
-interface Keyword {
-  word: string;
-}
-
-interface SummarizedChunk {
-  id: string;
-  timeRange: string;
-  summary: string;
-  keywords: Keyword[];
-}
-
 interface SearchPopupState {
   visible: boolean;
   word: string;
 }
-
-const SUMMARIZED_CHUNKS: SummarizedChunk[] = [
-  {
-    id: '1',
-    timeRange: '00:00 — 06:00',
-    summary:
-      '세포의 기본 구조와 핵, 미토콘드리아 등 세포 소기관의 역할을 소개. 진핵세포와 원핵세포의 차이를 비교함.',
-    keywords: [{ word: '진핵세포' }, { word: '원핵세포' }, { word: '미토콘드리아' }],
-  },
-  {
-    id: '2',
-    timeRange: '06:00 — 12:00',
-    summary:
-      '세포 분열의 개요와 유사분열 단계별 과정 설명. 간기, 전기, 중기, 후기, 말기 순서로 염색체 변화를 다룸.',
-    keywords: [{ word: '유사분열' }, { word: '염색체' }, { word: '간기' }],
-  },
-];
 
 export default function RecordingScreen() {
   const router = useRouter();
@@ -60,10 +31,21 @@ export default function RecordingScreen() {
   const [activeKeyword, setActiveKeyword] = useState<string | null>(null);
   const [stopModal, setStopModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [expandedSummaries, setExpandedSummaries] = useState<Record<number, boolean>>({});
   const scrollRef = useRef<ScrollView>(null);
 
-  const { isConnected, isPaused, segments, elapsedSeconds, start, pause, resume, stop } =
-    useRealtimeTranscription();
+  const {
+    isConnected,
+    isPaused,
+    segments,
+    summaries,
+    interimText,
+    elapsedSeconds,
+    start,
+    pause,
+    resume,
+    stop,
+  } = useRealtimeTranscription();
 
   // 녹음 시작/정리 — 기존 백엔드 연동 유지
   useEffect(() => {
@@ -78,8 +60,10 @@ export default function RecordingScreen() {
 
   // 새 전사 수신 시 하단으로 스크롤
   useEffect(() => {
-    if (segments.length > 0) scrollRef.current?.scrollToEnd({ animated: true });
-  }, [segments]);
+    if (segments.length > 0 || interimText || summaries.length > 0) {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [interimText, segments, summaries]);
 
   const formatTime = (s: number) => {
     const h = Math.floor(s / 3600)
@@ -99,12 +83,15 @@ export default function RecordingScreen() {
     try {
       const result = await stop();
       await saveRealtimeTranscript({
-        domain_type: 'meeting',
+        // 백엔드 유효 도메인 6종(general/legal/medical/science/it/religion) 중 하나여야 함.
+        // 'meeting'/'lecture'는 미정규화 경로라 그대로 저장되어 메타데이터 품질 저하 → 'general' 사용.
+        domain_type: 'general',
+        title: `${recordDate} 녹음`, // 백엔드 필수 필드
         duration_seconds: elapsedSeconds,
-        segments: result.map((seg, i) => ({
-          segment_index: i,
-          start_seconds: seg.chunkIndex * 5,
-          end_seconds: (seg.chunkIndex + 1) * 5,
+        segments: result.map((seg) => ({
+          segment_index: seg.finalIndex,
+          start_seconds: Math.floor(seg.startSeconds),
+          end_seconds: Math.floor(seg.endSeconds),
           text: seg.text,
         })),
       });
@@ -147,9 +134,17 @@ export default function RecordingScreen() {
     [searchPopup.word, closePopup]
   );
 
+  const toggleSummary = useCallback((segmentIndex: number) => {
+    setExpandedSummaries((current) => ({
+      ...current,
+      [segmentIndex]: !current[segmentIndex],
+    }));
+  }, []);
+
   // 실시간 전사 텍스트 (서버 전사 결과)
   const liveText = segments.map((seg) => seg.text).join(' ');
-  const liveStart = segments.length > 0 ? formatTime(segments[0].chunkIndex * 5) : formatTime(0);
+  const displayLiveText = [liveText, interimText].filter(Boolean).join(' ');
+  const liveStart = segments.length > 0 ? formatTime(segments[0].startSeconds) : formatTime(0);
 
   const recordDate = new Date().toLocaleDateString('ko-KR', {
     year: 'numeric',
@@ -188,34 +183,55 @@ export default function RecordingScreen() {
 
           {/* 스크립트 영역 — isPaused 상관없이 항상 표시 */}
           <ScrollView ref={scrollRef} style={styles.scriptArea} showsVerticalScrollIndicator={false}>
-            {SUMMARIZED_CHUNKS.map((chunk) => (
-              <View key={chunk.id} style={styles.chunkSummarized}>
-                <View style={styles.chunkTimeRow}>
-                  <Ionicons name="sparkles" size={11} color={Colors.mint} />
-                  <Text style={styles.chunkTimeText}>{chunk.timeRange} 요약</Text>
-                </View>
-                <Text style={styles.summaryText}>{chunk.summary}</Text>
-                <View style={styles.keywordRow}>
-                  {chunk.keywords.map((kw) => (
+            {summaries.map((chunk) => {
+              const isExpanded = expandedSummaries[chunk.segmentIndex] ?? false;
+              return (
+                <View key={chunk.segmentIndex} style={styles.chunkSummarized}>
+                  <View style={styles.chunkTimeRow}>
+                    <Ionicons name="sparkles" size={11} color={Colors.mint} />
+                    <Text style={styles.chunkTimeText}>{chunk.timeRange} 요약</Text>
+                  </View>
+                  <Text style={styles.summaryText}>{chunk.summary}</Text>
+                  {isExpanded && chunk.fullText && (
+                    <Text style={styles.fullText} selectable>
+                      {chunk.fullText}
+                    </Text>
+                  )}
+                  {chunk.keywords.length > 0 && (
+                    <View style={styles.keywordRow}>
+                      {chunk.keywords.map((word) => (
+                        <TouchableOpacity
+                          key={`${chunk.segmentIndex}-${word}`}
+                          style={[styles.keyword, activeKeyword === word && styles.keywordActive]}
+                          onPress={() => handleKeywordPress(word)}
+                          activeOpacity={0.7}
+                        >
+                          <Text
+                            style={[
+                              styles.keywordText,
+                              activeKeyword === word && styles.keywordTextActive,
+                            ]}
+                          >
+                            {word}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                  {chunk.fullText && (
                     <TouchableOpacity
-                      key={kw.word}
-                      style={[styles.keyword, activeKeyword === kw.word && styles.keywordActive]}
-                      onPress={() => handleKeywordPress(kw.word)}
+                      style={styles.summaryToggle}
+                      onPress={() => toggleSummary(chunk.segmentIndex)}
                       activeOpacity={0.7}
                     >
-                      <Text
-                        style={[
-                          styles.keywordText,
-                          activeKeyword === kw.word && styles.keywordTextActive,
-                        ]}
-                      >
-                        {kw.word}
+                      <Text style={styles.summaryToggleText}>
+                        {isExpanded ? '접기' : '전체 보기'}
                       </Text>
                     </TouchableOpacity>
-                  ))}
+                  )}
                 </View>
-              </View>
-            ))}
+              );
+            })}
 
             {/* 실시간 현재 문단 */}
             <View style={styles.chunkLive}>
@@ -226,7 +242,7 @@ export default function RecordingScreen() {
                 </Text>
               </View>
               <Text style={styles.liveText} selectable>
-                {liveText || (isPaused ? '' : '받아쓰는 중...')}
+                {displayLiveText || (isPaused ? '' : '받아쓰는 중...')}
                 {isConnected && !isPaused && <Text style={styles.cursor}>|</Text>}
               </Text>
             </View>

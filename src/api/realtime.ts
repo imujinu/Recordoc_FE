@@ -8,8 +8,19 @@ interface RealtimeSegmentPayload {
   text: string;
 }
 
+// 백엔드 유효 도메인 타입 — 실시간 저장 경로는 _resolve_domain_type 정규화를 거치지 않으므로
+// 반드시 이 6종 중 하나를 보내야 한다. (Recordoc_BE schemas/rag.py: DomainType)
+export type DomainType =
+  | 'general'
+  | 'legal'
+  | 'medical'
+  | 'science'
+  | 'it'
+  | 'religion';
+
 interface SaveRealtimePayload {
-  domain_type: 'meeting' | 'lecture';
+  domain_type: DomainType;
+  title: string; // 백엔드 RealtimeSaveRequest.title 필수 — 누락 시 422
   duration_seconds: number;
   segments: RealtimeSegmentPayload[];
 }

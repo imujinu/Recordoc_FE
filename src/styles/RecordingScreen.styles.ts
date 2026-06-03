@@ -65,6 +65,14 @@ export const styles = StyleSheet.create({
   chunkTimeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
   chunkTimeText: { fontSize: 10, color: Colors.mint, fontWeight: '600' },
   summaryText: { fontSize: 12, color: Colors.textMid, lineHeight: 18 },
+  fullText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#444',
+    lineHeight: 18,
+  },
+  summaryToggle: { alignSelf: 'flex-start', marginTop: 7 },
+  summaryToggleText: { fontSize: 11, color: Colors.mint, fontWeight: '600' },
   keywordRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 7 },
   keyword: {
     borderWidth: 0.5,
