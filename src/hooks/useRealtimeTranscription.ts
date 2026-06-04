@@ -1,5 +1,4 @@
 import { useCallback, useRef, useState } from 'react';
-import * as SecureStore from 'expo-secure-store';
 import {
   AudioStudioModule,
   useAudioRecorder,
@@ -7,6 +6,7 @@ import {
   type RecordingConfig,
 } from '@siteed/audio-studio';
 import { WS_BASE_URL } from '@/constants/config';
+import { getAccessToken, refreshStoredAccessToken } from '@/api/auth';
 
 export interface RealtimeTranscriptSegment {
   finalIndex: number;
@@ -409,12 +409,23 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
   }, []);
 
   const start = useCallback(async () => {
-    const token = await SecureStore.getItemAsync('at');
-    if (!token) throw new Error('로그인이 필요합니다.');
+    const token = await getAccessToken();
 
     resetState();
     await requestRecordingPermission();
-    await connectWebSocket(token);
+    try {
+      await connectWebSocket(token);
+    } catch (error) {
+      console.warn('[Realtime] WebSocket first connect failed, retrying with refreshed token:', error);
+      if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+        wsRef.current.close();
+      }
+      wsRef.current = null;
+      setIsConnected(false);
+
+      const refreshedToken = await refreshStoredAccessToken();
+      await connectWebSocket(refreshedToken);
+    }
 
     const config: RecordingConfig = {
       sampleRate: 16000,
@@ -423,7 +434,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
       interval: 250,
       keepAwake: true,
       output: {
-        primary: { enabled: false },
+        primary: { enabled: true, format: 'wav' },
       },
       onAudioStream: sendAudioStream,
     };

@@ -15,6 +15,7 @@ import { useNavigation, useRouter } from 'expo-router';
 import { styles } from '@/styles/RecordingScreen.styles';
 import { Colors } from '@/styles/theme';
 import StopRecordingModal from '@/components/StopRecordingModal';
+import SaveRecordingModal from '@/components/SaveRecordingModal';
 import { useRealtimeTranscription } from '@/hooks/useRealtimeTranscription';
 import { saveRealtimeTranscript } from '@/api/realtime';
 import {
@@ -28,19 +29,13 @@ const TOKEN_PARTS_PATTERN = /(\s+)/;
 const SENTENCE_PATTERN = /[^.!?。！？\n]+[.!?。！？]?|\n+/g;
 const EDGE_PUNCTUATION_PATTERN =
   /^[\s"'“”‘’([{<]+|[\s"'“”‘’)\]}>.,!?;:。！？]+$/g;
-const KOREAN_PARTICLE_PATTERN =
-  /(으로서|으로써|에게서|한테서|께서|에서|에게|한테|부터|까지|처럼|보다|으로|로|과|와|을|를|은|는|이|가|에|도|만|의)$/;
 
 function splitScriptSentences(text: string): string[] {
   return text.match(SENTENCE_PATTERN)?.filter(Boolean) ?? [text];
 }
 
 function normalizeSearchToken(token: string): string {
-  const cleaned = token.trim().replace(EDGE_PUNCTUATION_PATTERN, '');
-  if (!cleaned) return '';
-
-  const normalized = cleaned.replace(KOREAN_PARTICLE_PATTERN, '');
-  return normalized || cleaned;
+  return token.trim().replace(EDGE_PUNCTUATION_PATTERN, '');
 }
 
 function SelectableScriptText({
@@ -92,6 +87,7 @@ export default function RecordingScreen() {
   const navigation = useNavigation();
   const [activeKeyword, setActiveKeyword] = useState<string | null>(null);
   const [stopModal, setStopModal] = useState(false);
+  const [saveModal, setSaveModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [expandedSummaries, setExpandedSummaries] = useState<Record<number, boolean>>({});
   const scrollRef = useRef<ScrollView>(null);
@@ -207,8 +203,14 @@ export default function RecordingScreen() {
   };
 
   // 저장(stop) — 기존 백엔드 연동 유지
-  const handleStop = async () => {
+  const openSaveModal = () => {
+    if (isSaving) return;
     setStopModal(false);
+    setSaveModal(true);
+  };
+
+  const handleStop = async (fileName: string) => {
+    setSaveModal(false);
     setIsSaving(true);
     try {
       const result = await stop();
@@ -216,7 +218,7 @@ export default function RecordingScreen() {
         // 백엔드 유효 도메인 6종(general/legal/medical/science/it/religion) 중 하나여야 함.
         // 'meeting'/'lecture'는 미정규화 경로라 그대로 저장되어 메타데이터 품질 저하 → 'general' 사용.
         domain_type: 'general',
-        title: `${recordDate} 녹음`, // 백엔드 필수 필드
+        title: fileName, // 백엔드 필수 필드
         duration_seconds: elapsedSeconds,
         segments: result.map((seg) => ({
           segment_index: seg.finalIndex,
@@ -229,6 +231,7 @@ export default function RecordingScreen() {
       router.back();
     } catch (err: unknown) {
       setIsSaving(false);
+      setSaveModal(true);
       const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
       Alert.alert('저장 실패', msg, [
         {
@@ -239,6 +242,18 @@ export default function RecordingScreen() {
           },
         },
       ]);
+    }
+  };
+
+  const handleDiscard = async () => {
+    setStopModal(false);
+    try {
+      await stop();
+    } catch (error) {
+      console.warn('[Realtime] discard stop failed:', error);
+    } finally {
+      shouldLeaveRef.current = true;
+      router.back();
     }
   };
 
@@ -426,7 +441,7 @@ export default function RecordingScreen() {
             <View style={styles.centerCol}>
               <TouchableOpacity
                 style={styles.btnStop}
-                onPress={() => setStopModal(true)}
+                onPress={openSaveModal}
                 disabled={isSaving}
               >
                 <Ionicons name="stop" size={18} color="white" />
@@ -463,7 +478,15 @@ export default function RecordingScreen() {
       <StopRecordingModal
         visible={stopModal}
         onCancel={() => setStopModal(false)}
-        onConfirm={handleStop}
+        onDiscard={handleDiscard}
+        onSave={openSaveModal}
+      />
+
+      <SaveRecordingModal
+        visible={saveModal}
+        defaultName={`${recordDate} 녹음`}
+        onCancel={() => setSaveModal(false)}
+        onSave={handleStop}
       />
     </View>
   );

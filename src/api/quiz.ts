@@ -1,5 +1,5 @@
-import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL } from '@/constants/config';
+import { authFetch } from './auth';
 
 export type QuizStatus = 'correct' | 'wrong' | 'untested' | 'skipped';
 
@@ -9,12 +9,10 @@ export type QuizNodeStatusUpdate = {
 };
 
 export async function updateQuizNodeStatuses(updates: QuizNodeStatusUpdate[]): Promise<void> {
-  const token = await SecureStore.getItemAsync('at');
-  const res = await fetch(`${API_BASE_URL}/graph/quiz-status`, {
+  const res = await authFetch(`${API_BASE_URL}/graph/quiz-status`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ updates }),
   });

@@ -11,8 +11,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL } from '@/constants/config';
+import { authFetch } from '@/api/auth';
 
 const MINT = '#22C9A0';
 const MINT_LIGHT = '#E6F7F3';
@@ -535,9 +535,6 @@ export function useScriptSearch(options: UseScriptSearchOptions = {}) {
     setLoading(true);
     setShowResults(true);
     try {
-      const token = await SecureStore.getItemAsync('at');
-      if (!token) throw new Error('로그인이 필요합니다.');
-
       const candidateIds =
         file !== null
           ? getTranscriptIds(file)
@@ -548,11 +545,10 @@ export function useScriptSearch(options: UseScriptSearchOptions = {}) {
         throw new Error('검색할 문서를 먼저 선택해주세요.');
       }
 
-      const res = await fetch(`${API_BASE_URL}/rag/query`, {
+      const res = await authFetch(`${API_BASE_URL}/rag/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           query: selectedText.trim(),

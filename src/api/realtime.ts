@@ -1,5 +1,5 @@
-import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL } from '@/constants/config';
+import { authFetch } from './auth';
 
 interface RealtimeSegmentPayload {
   segment_index: number;
@@ -26,12 +26,10 @@ interface SaveRealtimePayload {
 }
 
 export async function saveRealtimeTranscript(payload: SaveRealtimePayload): Promise<void> {
-  const token = await SecureStore.getItemAsync('at');
-  const res = await fetch(`${API_BASE_URL}/audio/transcripts/realtime`, {
+  const res = await authFetch(`${API_BASE_URL}/audio/transcripts/realtime`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(payload),
   });

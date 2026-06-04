@@ -2,6 +2,7 @@ import 'react-native-gesture-handler';
 import { Stack, Redirect, useSegments } from 'expo-router';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
+import { StatusBar } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { NewItemSheetProvider } from '@/components/NewItemSheet';
 import { MoreSheetProvider } from '@/components/MoreSheet';
@@ -32,6 +33,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      <StatusBar translucent={false} backgroundColor="#fff" barStyle="dark-content" />
       <NewItemSheetProvider>
         <MoreSheetProvider>
           <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
