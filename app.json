@@ -25,9 +25,9 @@
       "permissions": [
         "RECORD_AUDIO"
       ],
-      "package": "com.anonymous.Recordoc_FE"
+      "package": "com.anonymous.wavb"
     },
-    "scheme": "recordoc",
+    "scheme": "wavb",
     "web": {
       "bundler": "metro",
       "favicon": "./assets/favicon.png"

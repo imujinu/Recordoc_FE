@@ -1,4 +1,4 @@
-# Recordoc_FE
+# Wavb_FE
 
 ## 실행 방법
 
@@ -54,7 +54,7 @@ development build 앱이 이미 설치되어 있고 JS/TS 코드만 바꿨다면
 npx expo start --dev-client
 ```
 
-그 다음 설치된 `Recordoc_FE` 앱을 열고 Metro 개발 서버에 연결합니다. 터미널에서 `a`를 눌러 Android로 열 수도 있습니다.
+그 다음 설치된 `와브` 앱을 열고 Metro 개발 서버에 연결합니다. 터미널에서 `a`를 눌러 Android로 열 수도 있습니다.
 
 ## 실시간 녹음 테스트 순서
 
@@ -82,6 +82,6 @@ npx expo start --dev-client
 
 sdk.dir=C\:\\Users\\notebiz004\\AppData\\Local\\Android\\Sdk
 
-Set-Content -Path "C:\github\Recordoc\Recordoc_FE\android\app\src\main\res\values\colors.xml" -Value '<?xml version="1.0" encoding="utf-8"?><resources><color name="iconBackground">#B8D8DC</color></resources>'
+Set-Content -Path ".\android\app\src\main\res\values\colors.xml" -Value '<?xml version="1.0" encoding="utf-8"?><resources><color name="iconBackground">#B8D8DC</color></resources>'
 
-Set-Content -Path "C:\github\Recordoc\Recordoc_FE\android\app\src\main\res\values\colors.xml" -Value '<?xml version="1.0" encoding="utf-8"?><resources><color name="iconBackground">#B8D8DC</color><color name="splashscreen_background">#B8D8DC</color></resources>'
+Set-Content -Path ".\android\app\src\main\res\values\colors.xml" -Value '<?xml version="1.0" encoding="utf-8"?><resources><color name="iconBackground">#B8D8DC</color><color name="splashscreen_background">#B8D8DC</color></resources>'

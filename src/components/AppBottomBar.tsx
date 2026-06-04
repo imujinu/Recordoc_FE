@@ -2,6 +2,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Colors } from '@/styles/theme';
+import { useMoreSheet } from './MoreSheet';
 import { useNewItemSheet } from './NewItemSheet';
 
 type ActiveTab = 'home' | 'work' | 'graph' | 'more';
@@ -21,34 +22,37 @@ const ITEMS: {
 
 export function AppBottomBar({ active = 'work' }: { active?: ActiveTab }) {
   const { openSheet } = useNewItemSheet();
+  const { openMoreSheet } = useMoreSheet();
+
+  const renderItem = (item: (typeof ITEMS)[number]) => {
+    const isActive = active === item.key;
+    const handlePress = () => {
+      if (item.key === 'more') {
+        openMoreSheet();
+        return;
+      }
+      router.push(item.route as never);
+    };
+
+    return (
+      <TouchableOpacity key={item.key} style={styles.tabItem} onPress={handlePress}>
+        <Ionicons
+          name={isActive ? item.icon : item.iconOutline}
+          size={22}
+          color={isActive ? Colors.mint : Colors.textLight}
+        />
+        <Text style={isActive ? styles.tabLabelActive : styles.tabLabel}>{item.label}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.tabBar}>
-      {ITEMS.slice(0, 2).map((item) => (
-        <TouchableOpacity key={item.key} style={styles.tabItem} onPress={() => router.push(item.route as never)}>
-          <Ionicons
-            name={active === item.key ? item.icon : item.iconOutline}
-            size={22}
-            color={active === item.key ? Colors.mint : Colors.textLight}
-          />
-          <Text style={active === item.key ? styles.tabLabelActive : styles.tabLabel}>{item.label}</Text>
-        </TouchableOpacity>
-      ))}
-
+      {ITEMS.slice(0, 2).map(renderItem)}
       <TouchableOpacity style={styles.addButton} onPress={openSheet}>
         <Ionicons name="add" size={28} color={Colors.white} />
       </TouchableOpacity>
-
-      {ITEMS.slice(2).map((item) => (
-        <TouchableOpacity key={item.key} style={styles.tabItem} onPress={() => router.push(item.route as never)}>
-          <Ionicons
-            name={active === item.key ? item.icon : item.iconOutline}
-            size={22}
-            color={active === item.key ? Colors.mint : Colors.textLight}
-          />
-          <Text style={active === item.key ? styles.tabLabelActive : styles.tabLabel}>{item.label}</Text>
-        </TouchableOpacity>
-      ))}
+      {ITEMS.slice(2).map(renderItem)}
     </View>
   );
 }

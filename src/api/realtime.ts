@@ -9,7 +9,7 @@ interface RealtimeSegmentPayload {
 }
 
 // 백엔드 유효 도메인 타입 — 실시간 저장 경로는 _resolve_domain_type 정규화를 거치지 않으므로
-// 반드시 이 6종 중 하나를 보내야 한다. (Recordoc_BE schemas/rag.py: DomainType)
+// 반드시 이 6종 중 하나를 보내야 한다. (Wavb_BE schemas/rag.py: DomainType)
 export type DomainType =
   | 'general'
   | 'legal'

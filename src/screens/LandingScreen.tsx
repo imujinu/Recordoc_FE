@@ -5,6 +5,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { login } from '@/api/auth';
+import { BrandMark } from '@/components/BrandMark';
 
 const MINT = '#22C9A0';
 const MINT_LIGHT = '#E6F7F3';
@@ -44,8 +45,9 @@ export default function LandingScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
 
-        {/* 로고 */}
-        <Text style={styles.logo}>Recordoc</Text>
+        <View style={styles.brandHeader}>
+          <BrandMark />
+        </View>
 
         {/* 일러스트 */}
         <View style={styles.illust}>
@@ -97,7 +99,7 @@ export default function LandingScreen() {
 
         {/* 무료 배지 */}
         <View style={styles.freeBadge}>
-          <Text style={styles.freeTxt}>✦ 레코닥은 무료로 이용 가능합니다</Text>
+          <Text style={styles.freeTxt}>✦ 와브는 무료로 이용 가능합니다</Text>
         </View>
 
         {/* 문제 링크 */}
@@ -116,9 +118,10 @@ const styles = StyleSheet.create({
     flex: 1, alignItems: 'center',
     paddingHorizontal: 24, paddingTop: 32, paddingBottom: 40,
   },
-  logo: {
-    fontSize: 24, fontWeight: '700',
-    color: MINT, letterSpacing: -0.5, marginBottom: 28,
+  brandHeader: {
+    alignSelf: 'stretch',
+    alignItems: 'flex-start',
+    marginBottom: 28,
   },
   illust: {
     width: 110, height: 110, borderRadius: 55,

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +7,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { BrandMark } from '@/components/BrandMark';
 import { styles } from '@/styles/HomeScreen.styles';
 import { Colors } from '@/styles/theme';
 
@@ -30,7 +30,7 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.logo}>Recordoc</Text>
+        <BrandMark size="compact" />
         <TouchableOpacity style={styles.avatarBtn}>
           <Ionicons name="person-outline" size={20} color={Colors.mint} />
         </TouchableOpacity>

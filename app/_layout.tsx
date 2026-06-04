@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { NewItemSheetProvider } from '@/components/NewItemSheet';
+import { MoreSheetProvider } from '@/components/MoreSheet';
 
 export default function RootLayout() {
   const [status, setStatus] = useState<'loading' | 'auth' | 'unauth'>('loading');
@@ -22,20 +23,23 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <NewItemSheetProvider>
-        <Stack>
-          <Stack.Screen name="landing" options={{ headerShown: false }} />
-          <Stack.Screen name="login" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="recording"
-            options={{ presentation: 'modal', headerShown: false }}
-          />
-          <Stack.Screen name="upload" options={{ headerShown: false }} />
-          <Stack.Screen name="detail" options={{ headerShown: false }} />
-          <Stack.Screen name="folder" options={{ headerShown: false }} />
-          <Stack.Screen name="pdf" options={{ headerShown: false }} />
-        </Stack>
-        {status === 'unauth' && <Redirect href="/landing" />}
+        <MoreSheetProvider>
+          <Stack>
+            <Stack.Screen name="landing" options={{ headerShown: false }} />
+            <Stack.Screen name="login" options={{ headerShown: false }} />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="recording"
+              options={{ presentation: 'modal', headerShown: false }}
+            />
+            <Stack.Screen name="upload" options={{ headerShown: false }} />
+            <Stack.Screen name="detail" options={{ headerShown: false }} />
+            <Stack.Screen name="folder" options={{ headerShown: false }} />
+            <Stack.Screen name="pdf" options={{ headerShown: false }} />
+            <Stack.Screen name="quiz" options={{ headerShown: false }} />
+          </Stack>
+          {status === 'unauth' && <Redirect href="/landing" />}
+        </MoreSheetProvider>
       </NewItemSheetProvider>
     </SafeAreaProvider>
   );
