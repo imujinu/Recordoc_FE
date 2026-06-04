@@ -1,9 +1,9 @@
 import { Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { router } from 'expo-router';
 import { Colors } from '@/styles/theme';
 import { useMoreSheet } from './MoreSheet';
-import { useNewItemSheet } from './NewItemSheet';
 import { styles } from './TabBar.styles';
 
 const TABS = [
@@ -14,7 +14,6 @@ const TABS = [
 ];
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
-  const { openSheet } = useNewItemSheet();
   const { openMoreSheet } = useMoreSheet();
 
   const renderTab = (tab: (typeof TABS)[number], index: number) => {
@@ -42,8 +41,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   return (
     <View style={styles.tabBar}>
       {TABS.slice(0, 2).map((tab, index) => renderTab(tab, index))}
-      <TouchableOpacity style={styles.recButton} onPress={openSheet}>
-        <Ionicons name="add" size={28} color={Colors.white} />
+      <TouchableOpacity style={styles.recButton} onPress={() => router.push('/recording')}>
+        <Ionicons name="mic" size={26} color={Colors.white} />
       </TouchableOpacity>
       {TABS.slice(2).map((tab, index) => renderTab(tab, index + 2))}
     </View>

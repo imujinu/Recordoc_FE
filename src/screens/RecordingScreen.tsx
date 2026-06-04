@@ -1,38 +1,101 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
+  BackHandler,
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  TouchableWithoutFeedback,
-  SafeAreaView,
-  Modal,
   Alert,
+  type StyleProp,
+  type TextStyle,
 } from 'react-native';
+import type { ReactNode } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
 import { styles } from '@/styles/RecordingScreen.styles';
 import { Colors } from '@/styles/theme';
 import StopRecordingModal from '@/components/StopRecordingModal';
 import { useRealtimeTranscription } from '@/hooks/useRealtimeTranscription';
 import { saveRealtimeTranscript } from '@/api/realtime';
+import {
+  ContextPopup,
+  DocSelector,
+  ResultPanel,
+  useScriptSearch,
+} from '../../SearchPanel';
 
-interface SearchPopupState {
-  visible: boolean;
-  word: string;
+const TOKEN_PARTS_PATTERN = /(\s+)/;
+const SENTENCE_PATTERN = /[^.!?。！？\n]+[.!?。！？]?|\n+/g;
+const EDGE_PUNCTUATION_PATTERN =
+  /^[\s"'“”‘’([{<]+|[\s"'“”‘’)\]}>.,!?;:。！？]+$/g;
+const KOREAN_PARTICLE_PATTERN =
+  /(으로서|으로써|에게서|한테서|께서|에서|에게|한테|부터|까지|처럼|보다|으로|로|과|와|을|를|은|는|이|가|에|도|만|의)$/;
+
+function splitScriptSentences(text: string): string[] {
+  return text.match(SENTENCE_PATTERN)?.filter(Boolean) ?? [text];
+}
+
+function normalizeSearchToken(token: string): string {
+  const cleaned = token.trim().replace(EDGE_PUNCTUATION_PATTERN, '');
+  if (!cleaned) return '';
+
+  const normalized = cleaned.replace(KOREAN_PARTICLE_PATTERN, '');
+  return normalized || cleaned;
+}
+
+function SelectableScriptText({
+  text,
+  style,
+  selectedText,
+  onSelectText,
+  suffix,
+}: {
+  text: string;
+  style: StyleProp<TextStyle>;
+  selectedText: string;
+  onSelectText: (text: string) => void;
+  suffix?: ReactNode;
+}) {
+  return (
+    <Text style={style}>
+      {splitScriptSentences(text).map((sentence, sentenceIndex) => {
+        const sentenceText = sentence.trim();
+        return sentence.split(TOKEN_PARTS_PATTERN).map((part, partIndex) => {
+          if (!part || /^\s+$/.test(part)) return part;
+
+          const query = normalizeSearchToken(part);
+          if (!query) return part;
+
+          const selected = selectedText === query || selectedText === sentenceText;
+          return (
+            <Text
+              key={`${sentenceIndex}-${partIndex}-${part}`}
+              style={selected && styles.selectedScriptToken}
+              suppressHighlighting
+              onPress={() => onSelectText(query)}
+              onLongPress={() => {
+                if (sentenceText) onSelectText(sentenceText);
+              }}
+            >
+              {part}
+            </Text>
+          );
+        });
+      })}
+      {suffix}
+    </Text>
+  );
 }
 
 export default function RecordingScreen() {
   const router = useRouter();
-  const [searchPopup, setSearchPopup] = useState<SearchPopupState>({
-    visible: false,
-    word: '',
-  });
+  const navigation = useNavigation();
   const [activeKeyword, setActiveKeyword] = useState<string | null>(null);
   const [stopModal, setStopModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [expandedSummaries, setExpandedSummaries] = useState<Record<number, boolean>>({});
   const scrollRef = useRef<ScrollView>(null);
+  const shouldLeaveRef = useRef(false);
 
   const {
     isConnected,
@@ -47,16 +110,83 @@ export default function RecordingScreen() {
     stop,
   } = useRealtimeTranscription();
 
+  const {
+    selectedText,
+    documents,
+    showPopup,
+    showDocSelector,
+    showResults,
+    loading,
+    results,
+    scope,
+    selectedSource,
+    onTextLongPress,
+    onScopeSelect,
+    onDocSelect,
+    closeAll,
+    onLocationPress,
+  } = useScriptSearch({
+    onAudioLocationPress: (timestamp, result) => {
+      router.push({
+        pathname: '/detail',
+        params: {
+          timestamp,
+          source: result.source_name,
+        },
+      });
+    },
+    onDocumentLocationPress: (page, result) => {
+      router.push({
+        pathname: '/pdf',
+        params: {
+          page: String(page),
+          source: result.source_name,
+        },
+      });
+    },
+    onError: (message) => {
+      Alert.alert('검색 실패', message);
+    },
+  });
+
   // 녹음 시작/정리 — 기존 백엔드 연동 유지
   useEffect(() => {
     start().catch((err: Error) => {
-      Alert.alert('녹음 오류', err.message, [{ text: '확인', onPress: () => router.back() }]);
+      Alert.alert('녹음 오류', err.message, [
+        {
+          text: '확인',
+          onPress: () => {
+            shouldLeaveRef.current = true;
+            router.back();
+          },
+        },
+      ]);
     });
     return () => {
       stop().catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setStopModal(true);
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (shouldLeaveRef.current) return;
+
+      event.preventDefault();
+      setStopModal(true);
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   // 새 전사 수신 시 하단으로 스크롤
   useEffect(() => {
@@ -95,11 +225,20 @@ export default function RecordingScreen() {
           text: seg.text,
         })),
       });
+      shouldLeaveRef.current = true;
       router.back();
     } catch (err: unknown) {
       setIsSaving(false);
       const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
-      Alert.alert('저장 실패', msg, [{ text: '취소', onPress: () => router.back() }]);
+      Alert.alert('저장 실패', msg, [
+        {
+          text: '취소',
+          onPress: () => {
+            shouldLeaveRef.current = true;
+            router.back();
+          },
+        },
+      ]);
     }
   };
 
@@ -107,31 +246,27 @@ export default function RecordingScreen() {
   const handleKeywordPress = useCallback(
     (word: string) => {
       if (activeKeyword === word) {
-        setSearchPopup({ visible: false, word: '' });
+        closeAll();
         setActiveKeyword(null);
         return;
       }
       setActiveKeyword(word);
-      setSearchPopup({ visible: true, word });
+      onTextLongPress(word);
     },
-    [activeKeyword]
+    [activeKeyword, closeAll, onTextLongPress]
   );
 
-  // 팝업 닫기
-  const closePopup = useCallback(() => {
-    setSearchPopup({ visible: false, word: '' });
+  const closeSearch = useCallback(() => {
+    closeAll();
     setActiveKeyword(null);
-  }, []);
+  }, [closeAll]);
 
-  // 검색 수행 — 검색 API 미연동, 추후 연결 예정
-  const handleSearch = useCallback(
-    (type: 'lecture' | 'web' | 'both') => {
-      const word = searchPopup.word;
-      closePopup();
-      // TODO: 검색 결과 화면 연동 (강의자료/웹/둘 다)
-      console.log(`검색: "${word}" / 타입: ${type}`);
+  const handleTextLongPress = useCallback(
+    (text: string) => {
+      setActiveKeyword(null);
+      onTextLongPress(text);
     },
-    [searchPopup.word, closePopup]
+    [onTextLongPress]
   );
 
   const toggleSummary = useCallback((segmentIndex: number) => {
@@ -153,9 +288,8 @@ export default function RecordingScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.container}>
-      <TouchableWithoutFeedback onPress={closePopup}>
-        <View style={styles.inner}>
+    <View style={styles.container}>
+      <View style={styles.inner}>
           {/* 타이머 */}
           <View style={styles.timerSection}>
             <View style={styles.timerRow}>
@@ -191,11 +325,19 @@ export default function RecordingScreen() {
                     <Ionicons name="sparkles" size={11} color={Colors.mint} />
                     <Text style={styles.chunkTimeText}>{chunk.timeRange} 요약</Text>
                   </View>
-                  <Text style={styles.summaryText}>{chunk.summary}</Text>
+                  <SelectableScriptText
+                    style={styles.summaryText}
+                    text={chunk.summary}
+                    selectedText={selectedText}
+                    onSelectText={handleTextLongPress}
+                  />
                   {isExpanded && chunk.fullText && (
-                    <Text style={styles.fullText} selectable>
-                      {chunk.fullText}
-                    </Text>
+                    <SelectableScriptText
+                      style={styles.fullText}
+                      text={chunk.fullText}
+                      selectedText={selectedText}
+                      onSelectText={handleTextLongPress}
+                    />
                   )}
                   {chunk.keywords.length > 0 && (
                     <View style={styles.keywordRow}>
@@ -241,10 +383,20 @@ export default function RecordingScreen() {
                   {liveStart} — {isPaused ? '일시정지' : '지금'}
                 </Text>
               </View>
-              <Text style={styles.liveText} selectable>
-                {displayLiveText || (isPaused ? '' : '받아쓰는 중...')}
-                {isConnected && !isPaused && <Text style={styles.cursor}>|</Text>}
-              </Text>
+              {displayLiveText ? (
+                <SelectableScriptText
+                  style={styles.liveText}
+                  text={displayLiveText}
+                  selectedText={selectedText}
+                  onSelectText={handleTextLongPress}
+                  suffix={isConnected && !isPaused ? <Text style={styles.cursor}>|</Text> : null}
+                />
+              ) : (
+                <Text style={styles.liveText}>
+                  {isPaused ? '' : '받아쓰는 중...'}
+                  {isConnected && !isPaused && <Text style={styles.cursor}>|</Text>}
+                </Text>
+              )}
             </View>
           </ScrollView>
 
@@ -257,7 +409,7 @@ export default function RecordingScreen() {
 
           {/* 하단 컨트롤 */}
           <View style={styles.bottomControls}>
-            <TouchableOpacity onPress={() => router.back()}>
+            <TouchableOpacity onPress={() => setStopModal(true)} disabled={isSaving}>
               <Text style={styles.ctrlLabel}>취소</Text>
             </TouchableOpacity>
 
@@ -282,67 +434,37 @@ export default function RecordingScreen() {
               <Text style={styles.ctrlLabel}>저장</Text>
             </View>
           </View>
-        </View>
-      </TouchableWithoutFeedback>
+      </View>
 
-      {/* 검색 팝업 모달 */}
-      <Modal
-        visible={searchPopup.visible}
-        transparent
-        animationType="fade"
-        onRequestClose={closePopup}
-      >
-        <TouchableWithoutFeedback onPress={closePopup}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.popupContainer}>
-                <View style={styles.popupQueryRow}>
-                  <Ionicons name="search" size={13} color="#666" />
-                  <View style={styles.popupWordBadge}>
-                    <Text style={styles.popupWordText}>{searchPopup.word}</Text>
-                  </View>
-                  <Text style={styles.popupQueryLabel}>검색하기</Text>
-                </View>
+      {showPopup && (
+        <ContextPopup
+          selectedText={selectedText}
+          onSelect={onScopeSelect}
+          onClose={closeSearch}
+        />
+      )}
 
-                <View style={styles.searchBtns}>
-                  <TouchableOpacity
-                    style={styles.searchBtn}
-                    onPress={() => handleSearch('lecture')}
-                    activeOpacity={0.75}
-                  >
-                    <Ionicons name="book-outline" size={14} color="#444" />
-                    <Text style={styles.searchBtnText}>강의자료</Text>
-                  </TouchableOpacity>
+      {showDocSelector && (
+        <DocSelector documents={documents} onSelect={onDocSelect} onClose={closeSearch} />
+      )}
 
-                  <TouchableOpacity
-                    style={styles.searchBtn}
-                    onPress={() => handleSearch('web')}
-                    activeOpacity={0.75}
-                  >
-                    <Ionicons name="globe-outline" size={14} color="#444" />
-                    <Text style={styles.searchBtnText}>웹 검색</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.searchBtn, styles.searchBtnPrimary]}
-                    onPress={() => handleSearch('both')}
-                    activeOpacity={0.75}
-                  >
-                    <Ionicons name="grid-outline" size={14} color="white" />
-                    <Text style={[styles.searchBtnText, styles.searchBtnTextPrimary]}>둘 다</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+      {showResults && (
+        <ResultPanel
+          results={results}
+          loading={loading}
+          query={selectedText}
+          scope={scope}
+          sourceName={selectedSource?.name}
+          onClose={closeSearch}
+          onLocationPress={onLocationPress}
+        />
+      )}
 
       <StopRecordingModal
         visible={stopModal}
         onCancel={() => setStopModal(false)}
         onConfirm={handleStop}
       />
-    </SafeAreaView>
+    </View>
   );
 }

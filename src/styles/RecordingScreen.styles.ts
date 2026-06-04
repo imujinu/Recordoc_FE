@@ -1,4 +1,4 @@
-import { Dimensions, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { Colors } from './theme';
 
 export const styles = StyleSheet.create({
@@ -65,6 +65,10 @@ export const styles = StyleSheet.create({
   chunkTimeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
   chunkTimeText: { fontSize: 10, color: Colors.mint, fontWeight: '600' },
   summaryText: { fontSize: 12, color: Colors.textMid, lineHeight: 18 },
+  selectedScriptToken: {
+    backgroundColor: Colors.mintBadge,
+    color: '#0F6E56',
+  },
   fullText: {
     marginTop: 8,
     fontSize: 12,
@@ -135,52 +139,4 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // 검색 팝업
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  popupContainer: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 14,
-    width: Dimensions.get('window').width - 60,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  popupQueryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
-  },
-  popupWordBadge: {
-    backgroundColor: Colors.mintBadge,
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  popupWordText: { fontSize: 12, fontWeight: '600', color: '#1A1A1A' },
-  popupQueryLabel: { fontSize: 12, color: '#666' },
-  searchBtns: { flexDirection: 'row', gap: 6 },
-  searchBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: '#F5F5F5',
-    borderWidth: 0.5,
-    borderColor: '#E0E0E0',
-  },
-  searchBtnPrimary: { backgroundColor: Colors.mint, borderColor: Colors.mint },
-  searchBtnText: { fontSize: 11, fontWeight: '500', color: '#444' },
-  searchBtnTextPrimary: { color: Colors.white },
 });

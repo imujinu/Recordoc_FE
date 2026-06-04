@@ -9,7 +9,7 @@ type Props = {
 
 export default function StopRecordingModal({ visible, onCancel, onConfirm }: Props) {
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.overlay}>
         <View style={styles.box}>
           <Text style={styles.title}>녹음을 종료할까요?</Text>

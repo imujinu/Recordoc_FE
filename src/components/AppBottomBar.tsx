@@ -3,7 +3,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Colors } from '@/styles/theme';
 import { useMoreSheet } from './MoreSheet';
-import { useNewItemSheet } from './NewItemSheet';
 
 type ActiveTab = 'home' | 'work' | 'graph' | 'more';
 
@@ -21,7 +20,6 @@ const ITEMS: {
 ];
 
 export function AppBottomBar({ active = 'work' }: { active?: ActiveTab }) {
-  const { openSheet } = useNewItemSheet();
   const { openMoreSheet } = useMoreSheet();
 
   const renderItem = (item: (typeof ITEMS)[number]) => {
@@ -49,8 +47,8 @@ export function AppBottomBar({ active = 'work' }: { active?: ActiveTab }) {
   return (
     <View style={styles.tabBar}>
       {ITEMS.slice(0, 2).map(renderItem)}
-      <TouchableOpacity style={styles.addButton} onPress={openSheet}>
-        <Ionicons name="add" size={28} color={Colors.white} />
+      <TouchableOpacity style={styles.recButton} onPress={() => router.push('/recording')}>
+        <Ionicons name="mic" size={26} color={Colors.white} />
       </TouchableOpacity>
       {ITEMS.slice(2).map(renderItem)}
     </View>
@@ -82,7 +80,7 @@ const styles = StyleSheet.create({
     color: Colors.mint,
     fontWeight: '500',
   },
-  addButton: {
+  recButton: {
     width: 46,
     height: 46,
     borderRadius: 23,
