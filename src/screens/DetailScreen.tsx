@@ -1,554 +1,546 @@
-import { useState, useRef } from 'react';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  SafeAreaView, ScrollView, Modal, TextInput,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { Colors } from '@/styles/theme';
+import { AppBottomBar } from '@/components/AppBottomBar';
 
-const MINT = '#22C9A0';
-const MINT_LIGHT = '#E6F7F3';
-const BG = '#F7FAF9';
-
-type Tab = '요약' | '전체 텍스트' | '질의응답' | '문서 생성';
-type Template = '회의록' | '보고서' | '강의노트' | '할일목록';
-type Format = 'PDF' | 'Word' | '텍스트';
-
-const TABS: Tab[] = ['요약', '전체 텍스트', '질의응답', '문서 생성'];
-
-const SCRIPTS = [
-  { time: '00:00', text: '안녕하세요, 오늘 회의 시작하겠습니다. 지난번 안건에 대해서 먼저 이야기해볼까요?' },
-  { time: '00:59', text: '3분기 목표치를 조정하는 방향으로 논의해봤으면 합니다. 마케팅 팀과 협의가 필요할 것 같습니다.' },
-  { time: '01:49', text: 'SNS 캠페인 일정은 7월 초로 잡는 게 좋을 것 같고요. 다음 주까지 각자 초안 제출 부탁드립니다.' },
-];
-
-const TEMPLATES: { key: Template; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: '회의록', icon: 'document-text-outline' },
-  { key: '보고서', icon: 'clipboard-outline' },
-  { key: '강의노트', icon: 'school-outline' },
-  { key: '할일목록', icon: 'checkbox-outline' },
-];
-
-const FORMATS: { key: Format; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: 'PDF', icon: 'document-outline' },
-  { key: 'Word', icon: 'document-text-outline' },
-  { key: '텍스트', icon: 'create-outline' },
-];
-
-const SUGGESTIONS = [
-  { emoji: '🔖', text: '핵심 주제별로 나눠서 정리해줘' },
-  { emoji: '📝', text: '회의록으로 정리해줘' },
-  { emoji: '📋', text: '시험문제를 만들어줘' },
-  { emoji: '📗', text: '꼭 공부해야 할 내용을 알려줘' },
-  { emoji: '🇰🇷', text: '주요 내용을 한글로 번역해줘' },
-];
-
+type TopTab = 'summary' | 'script';
+type SectionKey = 'overview' | 'paragraphs' | 'keywords';
 type ChatMessage = { role: 'user' | 'ai'; text: string };
 
+const SCRIPTS = [
+  { time: '00:00:03', text: '안녕하세요. 오늘 회의를 시작하겠습니다. 지난번 의견에 대해 먼저 이야기해볼까요?' },
+  { time: '00:00:24', text: '2분기 예산은 조정하는 방향으로 진행하면 좋겠습니다. 신규 채널 진입 비용이 필요합니다.' },
+  { time: '00:00:38', text: '인스타그램 릴스에 집중하는 것이 효율적일 것 같아요.' },
+  { time: '00:00:52', text: '유튜브 쇼츠도 같이 가면 좋겠지만, 리소스가 부족할 수 있어요.' },
+];
+
+const PARAGRAPHS = [
+  {
+    title: '예산 조정 논의',
+    color: Colors.mint,
+    body: '2분기 마케팅 예산을 전분기 대비 15% 증액하기로 합의했습니다. 신규 채널 진입 비용과 크리에이티브 작업 비용 증가가 주요 이유입니다.',
+  },
+  {
+    title: 'SNS 전략 개편',
+    color: '#7F77DD',
+    body: '인스타그램 릴스 콘텐츠를 핵심 채널로 선정했습니다. 기존 블로그 중심 전략에서 짧은 영상 중심으로 전환합니다.',
+  },
+  {
+    title: '다음 회의 액션 아이템',
+    color: '#D85A30',
+    body: '각 파트는 채널별 KPI 초안과 콘텐츠 제작 일정을 준비하고, 다음 회의 전 공유 드라이브에 업로드합니다.',
+  },
+];
+
+const KEYWORDS = [
+  '마케팅 예산',
+  '2분기',
+  '15% 증액',
+  '인스타그램',
+  '릴스',
+  '유튜브 쇼츠',
+  'SNS 전략',
+  'KPI',
+  '액션 아이템',
+];
+
 const INIT_CHATS: ChatMessage[] = [
-  { role: 'user', text: '주요 결정 사항이 뭐야?' },
-  { role: 'ai', text: '이번 회의에서 결정된 주요 사항이에요:\n\n• 3분기 목표치 15% 하향 조정\n• 신규 SNS 캠페인 7월 론칭\n• 주간 체크인 매주 화요일로 변경' },
-  { role: 'user', text: '다음 액션 아이템은?' },
-  { role: 'ai', text: '각 팀은 다음 주까지 캠페인 초안을 제출해야 해요. 마케팅 팀과 별도 협의도 필요합니다.' },
+  { role: 'user', text: '예산 증액 이유가 뭐야?' },
+  { role: 'ai', text: '신규 채널 진입 비용과 크리에이티브 작업 비용 증가 때문에 15% 증액하기로 했습니다.' },
 ];
 
 export default function DetailScreen() {
-  const [activeTab, setActiveTab] = useState<Tab>('요약');
-  const [selectedTemplate, setSelectedTemplate] = useState<Template>('회의록');
-  const [selectedFormat, setSelectedFormat] = useState<Format>('PDF');
-  const [docGenerated, setDocGenerated] = useState(false);
-  const [archiveModal, setArchiveModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<TopTab>('summary');
+  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
+    overview: true,
+    paragraphs: true,
+    keywords: true,
+  });
+  const [panelOpen, setPanelOpen] = useState(true);
   const [chats, setChats] = useState<ChatMessage[]>(INIT_CHATS);
   const [inputText, setInputText] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
+  const toggleSection = (key: SectionKey) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
   const handleSend = () => {
     if (!inputText.trim()) return;
-    setChats(prev => [
+    setChats((prev) => [
       ...prev,
       { role: 'user', text: inputText },
-      { role: 'ai', text: '스크립트를 분석 중이에요. 잠시만 기다려 주세요.' },
+      { role: 'ai', text: '스크립트를 기준으로 답변을 준비 중입니다. 잠시만 기다려주세요.' },
     ]);
     setInputText('');
+    setPanelOpen(true);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 네비게이션 */}
-      <View style={styles.nav}>
-        <View style={styles.navLeft}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={20} color="#333" />
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={20} color={Colors.mint} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          3월 마케팅 회의록
+        </Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.iconButton}>
+            <Ionicons name="share-outline" size={17} color={Colors.mint} />
           </TouchableOpacity>
-          <Text style={styles.navTitle} numberOfLines={1}>3월 마케팅 팀 회의록</Text>
-        </View>
-        <View style={styles.navRight}>
-          {activeTab === '전체 텍스트' && (
-            <TouchableOpacity>
-              <Ionicons name="search-outline" size={20} color="#888" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity>
-            <Ionicons name="share-outline" size={20} color="#888" />
-          </TouchableOpacity>
-          <TouchableOpacity>
-            <Ionicons name="ellipsis-vertical" size={20} color="#888" />
+          <TouchableOpacity style={styles.iconButton}>
+            <Ionicons name="ellipsis-horizontal" size={18} color={Colors.mint} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* 탭 */}
-      <View style={styles.tabs}>
-        {TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            style={styles.tabItem}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Text style={[styles.tabTxt, activeTab === tab && styles.tabTxtActive]}>
-              {tab}
-            </Text>
-            {activeTab === tab && <View style={styles.tabUnderline} />}
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* 탭 콘텐츠 */}
-      {activeTab === '요약' && <SummaryTab />}
-      {activeTab === '전체 텍스트' && <ScriptTab />}
-      {activeTab === '질의응답' && (
-        <QATab
-          chats={chats}
-          inputText={inputText}
-          setInputText={setInputText}
-          onSend={handleSend}
-          scrollRef={scrollRef}
-        />
-      )}
-      {activeTab === '문서 생성' && (
-        <DocTab
-          selectedTemplate={selectedTemplate}
-          setSelectedTemplate={setSelectedTemplate}
-          selectedFormat={selectedFormat}
-          setSelectedFormat={setSelectedFormat}
-          docGenerated={docGenerated}
-          setDocGenerated={setDocGenerated}
-          onArchive={() => setArchiveModal(true)}
-        />
-      )}
-
-      {/* 문서 보관함 모달 */}
-      <Modal visible={archiveModal} transparent animationType="slide">
+      <View style={styles.tabRow}>
         <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setArchiveModal(false)}
+          style={[styles.tabItem, activeTab === 'summary' && styles.tabItemActive]}
+          onPress={() => setActiveTab('summary')}
         >
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>문서 보관함</Text>
-            <View style={styles.archiveItem}>
-              <View style={styles.archiveIcon}>
-                <Ionicons name="document-outline" size={20} color={MINT} />
+          <Text style={[styles.tabText, activeTab === 'summary' && styles.tabTextActive]}>요약</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'script' && styles.tabItemActive]}
+          onPress={() => setActiveTab('script')}
+        >
+          <Text style={[styles.tabText, activeTab === 'script' && styles.tabTextActive]}>스크립트</Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'summary' ? (
+        <ScrollView contentContainerStyle={styles.content}>
+          <CollapsibleSection
+            icon="sparkles-outline"
+            title="전체 요약"
+            open={openSections.overview}
+            onPress={() => toggleSection('overview')}
+          >
+            <Text style={styles.sectionText}>
+              3월 마케팅 회의에서는 2분기 캠페인 예산 조정과 SNS 콘텐츠 전략을 주요 안건으로 논의했습니다.
+              예산은 전분기 대비 15% 증액하기로 결정했으며, 인스타그램 릴스를 핵심 채널로 선정하고 유튜브
+              쇼츠 병행 운영은 리소스 상황에 따라 검토하기로 했습니다.
+            </Text>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            icon="list-outline"
+            title="문단별 요약"
+            open={openSections.paragraphs}
+            onPress={() => toggleSection('paragraphs')}
+          >
+            {PARAGRAPHS.map((item) => (
+              <View key={item.title} style={styles.contextItem}>
+                <View style={styles.contextTitleRow}>
+                  <View style={[styles.contextDot, { backgroundColor: item.color }]} />
+                  <Text style={styles.contextTitle}>{item.title}</Text>
+                </View>
+                <Text style={styles.contextText}>{item.body}</Text>
               </View>
-              <View style={styles.archiveInfo}>
-                <Text style={styles.archiveTitle}>3월 마케팅 팀 회의록.pdf</Text>
-                <Text style={styles.archiveSub}>방금 생성됨 · PDF</Text>
-              </View>
-              <TouchableOpacity style={styles.openBtn}>
-                <Text style={styles.openBtnTxt}>열기</Text>
-              </TouchableOpacity>
+            ))}
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            icon="pricetag-outline"
+            title="키워드"
+            open={openSections.keywords}
+            onPress={() => toggleSection('keywords')}
+          >
+            <View style={styles.keywordWrap}>
+              {KEYWORDS.map((keyword, index) => (
+                <View
+                  key={keyword}
+                  style={[
+                    styles.keyword,
+                    index % 3 === 1 && styles.keywordPurple,
+                    index % 3 === 2 && styles.keywordCoral,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.keywordText,
+                      index % 3 === 1 && styles.keywordTextPurple,
+                      index % 3 === 2 && styles.keywordTextCoral,
+                    ]}
+                  >
+                    {keyword}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </CollapsibleSection>
+        </ScrollView>
+      ) : (
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.sectionCard}>
+            <View style={styles.scriptBody}>
+              {SCRIPTS.map((script) => (
+                <View key={script.time} style={styles.scriptItem}>
+                  <Text style={styles.scriptTime}>{script.time}</Text>
+                  <Text style={styles.scriptText}>{script.text}</Text>
+                </View>
+              ))}
             </View>
           </View>
-        </TouchableOpacity>
-      </Modal>
+        </ScrollView>
+      )}
+
+      <RagPanel
+        open={panelOpen}
+        onToggle={() => setPanelOpen((prev) => !prev)}
+        chats={chats}
+        inputText={inputText}
+        setInputText={setInputText}
+        onSend={handleSend}
+        scrollRef={scrollRef}
+      />
+      <AppBottomBar active="work" />
     </SafeAreaView>
   );
 }
 
-function SummaryTab() {
+function CollapsibleSection({
+  icon,
+  title,
+  open,
+  onPress,
+  children,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  open: boolean;
+  onPress: () => void;
+  children: ReactNode;
+}) {
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <View style={styles.summarySection}>
-        <View style={styles.summaryTag}>
-          <Ionicons name="sparkles" size={11} color={MINT} />
-          <Text style={styles.summaryTagTxt}>AI 요약</Text>
+    <View style={styles.sectionCard}>
+      <TouchableOpacity style={styles.sectionHeader} onPress={onPress}>
+        <View style={styles.sectionLabelRow}>
+          <Ionicons name={icon} size={13} color={Colors.mint} />
+          <Text style={styles.sectionLabel}>{title}</Text>
         </View>
-        <Text style={styles.summaryTitle}>3분기 목표 조정 및 마케팅 전략 논의</Text>
-        <Text style={styles.summaryBody}>
-          마케팅 팀 회의에서 3분기 목표치 조정 방향을 검토했습니다. SNS 채널 전략 개편과 신규 캠페인 일정에 대해 논의했으며, 다음 주까지 각 팀별 초안을 제출하기로 했습니다.
-        </Text>
-      </View>
-      <View style={styles.divider} />
-      <View style={styles.summarySection}>
-        <Text style={styles.summaryTitle}>주요 결정 사항</Text>
-        <Text style={styles.summaryBody}>
-          {'• 3분기 목표치 15% 하향 조정\n• 신규 SNS 캠페인 7월 론칭\n• 주간 체크인 매주 화요일로 변경'}
-        </Text>
-      </View>
-      <View style={styles.divider} />
-      <View style={styles.summarySection}>
-        <Text style={styles.summaryTitle}>키워드</Text>
-        <View style={styles.keywordRow}>
-          {['3분기 목표', 'SNS 전략', '캠페인', '마케팅'].map((kw) => (
-            <View key={kw} style={styles.keyword}>
-              <Text style={styles.keywordTxt}>{kw}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    </ScrollView>
-  );
-}
-
-function ScriptTab() {
-  return (
-    <View style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.content}>
-        {SCRIPTS.map((s) => (
-          <View key={s.time} style={styles.scriptBlock}>
-            <Text style={styles.scriptTime}>{s.time}</Text>
-            <Text style={styles.scriptBody}>{s.text}</Text>
-          </View>
-        ))}
-      </ScrollView>
-      <View style={styles.playerBar}>
-        <View style={styles.progBg}>
-          <View style={styles.progFill}>
-            <View style={styles.progHandle} />
-          </View>
-        </View>
-        <View style={styles.playerTime}>
-          <Text style={styles.playerTimeCurrent}>00:22</Text>
-          <Text style={styles.playerTimeTotal}>02:42</Text>
-        </View>
-        <View style={styles.playerCtrl}>
-          <Text style={styles.speedTxt}>1.0x</Text>
-          <TouchableOpacity>
-            <Ionicons name="play-back-outline" size={22} color="#aaa" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.playBtn}>
-            <Ionicons name="play" size={26} color="#333" />
-          </TouchableOpacity>
-          <TouchableOpacity>
-            <Ionicons name="play-forward-outline" size={22} color="#aaa" />
-          </TouchableOpacity>
-          <TouchableOpacity>
-            <Ionicons name="bookmark-outline" size={22} color="#aaa" />
-          </TouchableOpacity>
-        </View>
-      </View>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textLight} />
+      </TouchableOpacity>
+      {open && <View style={styles.sectionBody}>{children}</View>}
     </View>
   );
 }
 
-function QATab({ chats, inputText, setInputText, onSend, scrollRef }: {
+function RagPanel({
+  open,
+  onToggle,
+  chats,
+  inputText,
+  setInputText,
+  onSend,
+  scrollRef,
+}: {
+  open: boolean;
+  onToggle: () => void;
   chats: ChatMessage[];
   inputText: string;
-  setInputText: (t: string) => void;
+  setInputText: (text: string) => void;
   onSend: () => void;
-  scrollRef: React.RefObject<ScrollView>;
+  scrollRef: RefObject<ScrollView | null>;
 }) {
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={styles.chatList}
-      >
-        {chats.map((msg, i) => (
-          <View
-            key={i}
-            style={msg.role === 'user' ? styles.bubbleWrapUser : styles.bubbleWrapAi}
-          >
-            {msg.role === 'ai' && (
-              <View style={styles.aiAvatar}>
-                <Ionicons name="sparkles" size={12} color={MINT} />
-              </View>
-            )}
-            <View style={msg.role === 'user' ? styles.bubbleUser : styles.bubbleAi}>
-              <Text style={msg.role === 'user' ? styles.bubbleUserTxt : styles.bubbleAiTxt}>
-                {msg.text}
-              </Text>
+    <View style={styles.chatPanel}>
+      <TouchableOpacity style={styles.panelHandleButton} onPress={onToggle}>
+        <View style={styles.panelHandle} />
+      </TouchableOpacity>
+      <View style={styles.panelTitleRow}>
+        <Ionicons name="chatbubble-ellipses-outline" size={14} color={Colors.mint} />
+        <Text style={styles.panelTitle}>이 파일로 질문하기</Text>
+      </View>
+      {open && (
+        <ScrollView ref={scrollRef} style={styles.chatScroll} contentContainerStyle={styles.chatList}>
+          {chats.map((message, index) => (
+            <View key={`${message.role}-${index}`} style={message.role === 'user' ? styles.chatMine : styles.chatAi}>
+              <Text style={message.role === 'user' ? styles.chatMineText : styles.chatAiText}>{message.text}</Text>
             </View>
-          </View>
-        ))}
-      </ScrollView>
-      <View style={styles.inputBar}>
+          ))}
+        </ScrollView>
+      )}
+      <View style={styles.inputRow}>
         <TextInput
-          style={styles.inputField}
-          placeholder="궁금한 내용을 질문해 보세요"
+          style={styles.input}
+          placeholder="이 내용으로 질문하세요..."
           placeholderTextColor="#bbb"
           value={inputText}
           onChangeText={setInputText}
           onSubmitEditing={onSend}
         />
-        <TouchableOpacity style={styles.sendBtn} onPress={onSend}>
-          <Ionicons name="arrow-up" size={14} color="#fff" />
+        <TouchableOpacity onPress={onSend}>
+          <Ionicons name="send" size={17} color={Colors.mint} />
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-function DocTab({ selectedTemplate, setSelectedTemplate, selectedFormat, setSelectedFormat, docGenerated, setDocGenerated, onArchive }: {
-  selectedTemplate: Template;
-  setSelectedTemplate: (t: Template) => void;
-  selectedFormat: Format;
-  setSelectedFormat: (f: Format) => void;
-  docGenerated: boolean;
-  setDocGenerated: (v: boolean) => void;
-  onArchive: () => void;
-}) {
-  return (
-    <ScrollView contentContainerStyle={styles.content}>
-      {/* 문서 보관함 버튼 */}
-      <TouchableOpacity style={styles.archiveRow} onPress={onArchive}>
-        <Ionicons name="folder-outline" size={15} color="#888" />
-        <Text style={styles.archiveRowTxt}>문서 보관함</Text>
-        <Ionicons name="chevron-forward" size={14} color="#ccc" />
-      </TouchableOpacity>
-
-      {/* 템플릿 선택 */}
-      <Text style={styles.docSectionTitle}>템플릿 선택</Text>
-      <View style={styles.templateGrid}>
-        {TEMPLATES.map((t) => (
-          <TouchableOpacity
-            key={t.key}
-            style={styles.templateItem}
-            onPress={() => setSelectedTemplate(t.key)}
-          >
-            <View style={[styles.templateIconBox, selectedTemplate === t.key && styles.templateIconBoxSel]}>
-              <Ionicons name={t.icon} size={22} color={selectedTemplate === t.key ? MINT : '#aaa'} />
-              {selectedTemplate === t.key && (
-                <View style={styles.tCheck}>
-                  <Ionicons name="checkmark" size={9} color="#fff" />
-                </View>
-              )}
-            </View>
-            <Text style={[styles.templateLbl, selectedTemplate === t.key && styles.templateLblSel]}>
-              {t.key}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* 파일 형식 */}
-      <Text style={styles.docSectionTitle}>파일 형식</Text>
-      <View style={styles.formatGrid}>
-        {FORMATS.map((f) => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.formatItem, selectedFormat === f.key && styles.formatItemSel]}
-            onPress={() => setSelectedFormat(f.key)}
-          >
-            <Ionicons name={f.icon} size={24} color={selectedFormat === f.key ? MINT : '#aaa'} />
-            <Text style={[styles.formatLbl, selectedFormat === f.key && styles.formatLblSel]}>
-              {f.key}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* 생성 버튼 */}
-      <TouchableOpacity style={styles.genBtn} onPress={() => setDocGenerated(true)}>
-        <Text style={styles.genBtnTxt}>문서 생성하기</Text>
-      </TouchableOpacity>
-
-      {/* 생성된 문서 카드 */}
-      {docGenerated && (
-        <View style={styles.docDoneCard}>
-          <View style={styles.docDoneIcon}>
-            <Ionicons name="document-outline" size={22} color={MINT} />
-          </View>
-          <View style={styles.docDoneInfo}>
-            <Text style={styles.docDoneTitle} numberOfLines={1}>
-              3월 마케팅 팀 회의록.{selectedFormat === 'PDF' ? 'pdf' : selectedFormat === 'Word' ? 'docx' : 'txt'}
-            </Text>
-            <Text style={styles.docDoneSub}>방금 생성됨 · {selectedFormat}</Text>
-          </View>
-          <TouchableOpacity style={styles.openBtn}>
-            <Text style={styles.openBtnTxt}>열기</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </ScrollView>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  nav: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10,
-    borderBottomWidth: 0.5, borderBottomColor: '#eee',
+  container: {
+    flex: 1,
+    backgroundColor: Colors.bg,
   },
-  navLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  navTitle: { fontSize: 14, fontWeight: '500', color: '#222', flex: 1 },
-  navRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  tabs: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#eee' },
-  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 10, position: 'relative' },
-  tabTxt: { fontSize: 12, color: '#aaa' },
-  tabTxtActive: { color: MINT, fontWeight: '500' },
-  tabUnderline: {
-    position: 'absolute', bottom: -1, left: '10%',
-    width: '80%', height: 2, backgroundColor: MINT, borderRadius: 2,
+  header: {
+    backgroundColor: Colors.white,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  content: { padding: 18, paddingBottom: 32 },
-
-  // 요약
-  summarySection: { marginBottom: 12 },
-  summaryTag: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: MINT_LIGHT, paddingHorizontal: 8,
-    paddingVertical: 3, borderRadius: 10, alignSelf: 'flex-start', marginBottom: 7,
+  headerTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textDark,
   },
-  summaryTagTxt: { fontSize: 11, color: MINT, fontWeight: '500' },
-  summaryTitle: { fontSize: 13, fontWeight: '500', color: '#222', marginBottom: 5 },
-  summaryBody: { fontSize: 12, color: '#666', lineHeight: 19 },
-  divider: { height: 0.5, backgroundColor: '#eee', marginVertical: 10 },
-  keywordRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 7,
+  },
+  iconButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: '#F0FAF7',
+    borderWidth: 0.5,
+    borderColor: '#c8ede3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabRow: {
+    flexDirection: 'row',
+    backgroundColor: Colors.white,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.border,
+  },
+  tabItem: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabItemActive: {
+    borderBottomColor: Colors.mint,
+  },
+  tabText: {
+    fontSize: 12,
+    color: Colors.textLight,
+  },
+  tabTextActive: {
+    color: Colors.mint,
+    fontWeight: '600',
+  },
+  content: {
+    padding: 12,
+    paddingBottom: 10,
+  },
+  sectionCard: {
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  sectionHeader: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sectionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Colors.mint,
+  },
+  sectionBody: {
+    borderTopWidth: 0.5,
+    borderTopColor: '#f0f0f0',
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+  },
+  sectionText: {
+    fontSize: 12,
+    color: '#444',
+    lineHeight: 20,
+    paddingTop: 8,
+  },
+  contextItem: {
+    paddingVertical: 10,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#f5f5f5',
+  },
+  contextTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 5,
+  },
+  contextDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  contextTitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Colors.textDark,
+  },
+  contextText: {
+    fontSize: 12,
+    color: '#666',
+    lineHeight: 20,
+    paddingLeft: 11,
+  },
+  keywordWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingTop: 8,
+  },
   keyword: {
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10,
-    backgroundColor: BG, borderWidth: 0.5, borderColor: '#e0e0e0',
+    backgroundColor: Colors.mintLight,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  keywordTxt: { fontSize: 11, color: '#888' },
-
-  // 전체 텍스트
-  scriptBlock: { marginBottom: 16 },
-  scriptTime: { fontSize: 11, color: MINT, fontWeight: '500', marginBottom: 4 },
-  scriptBody: { fontSize: 13, color: '#333', lineHeight: 20 },
-  playerBar: {
-    borderTopWidth: 0.5, borderTopColor: '#eee',
-    paddingHorizontal: 20, paddingVertical: 12,
+  keywordPurple: {
+    backgroundColor: '#EEEDFE',
   },
-  progBg: {
-    height: 4, backgroundColor: '#f0f0f0',
-    borderRadius: 4, marginBottom: 6,
+  keywordCoral: {
+    backgroundColor: '#FAECE7',
   },
-  progFill: {
-    height: '100%', width: '20%',
-    backgroundColor: MINT, borderRadius: 4,
-    position: 'relative',
+  keywordText: {
+    fontSize: 11,
+    color: '#0F6E56',
+    fontWeight: '500',
   },
-  progHandle: {
-    width: 12, height: 12, borderRadius: 6,
-    backgroundColor: MINT, position: 'absolute',
-    right: -6, top: -4,
+  keywordTextPurple: {
+    color: '#3C3489',
   },
-  playerTime: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  playerTimeCurrent: { fontSize: 11, color: MINT },
-  playerTimeTotal: { fontSize: 11, color: '#aaa' },
-  playerCtrl: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  speedTxt: { fontSize: 12, fontWeight: '500', color: '#333' },
-  playBtn: { padding: 4 },
-
-  // 질의응답
-  chatList: { padding: 16, gap: 10, paddingBottom: 8 },
-  bubbleWrapUser: { flexDirection: 'row', justifyContent: 'flex-end' },
-  bubbleWrapAi: { flexDirection: 'row', justifyContent: 'flex-start', gap: 6 },
-  aiAvatar: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: MINT_LIGHT,
-    justifyContent: 'center', alignItems: 'center', marginTop: 2, flexShrink: 0,
+  keywordTextCoral: {
+    color: '#712B13',
   },
-  bubbleUser: {
-    backgroundColor: MINT, paddingHorizontal: 12, paddingVertical: 8,
-    borderRadius: 16, borderBottomRightRadius: 2, maxWidth: '75%',
+  scriptBody: {
+    padding: 12,
   },
-  bubbleUserTxt: { fontSize: 13, color: '#fff', lineHeight: 19 },
-  bubbleAi: {
-    backgroundColor: BG, paddingHorizontal: 12, paddingVertical: 8,
-    borderRadius: 16, borderTopLeftRadius: 2, maxWidth: '80%',
-    borderWidth: 0.5, borderColor: '#e0e0e0',
+  scriptItem: {
+    marginBottom: 10,
   },
-  bubbleAiTxt: { fontSize: 13, color: '#333', lineHeight: 19 },
-  inputBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginHorizontal: 16, marginBottom: 12,
-    borderWidth: 0.5, borderColor: '#ddd',
-    borderRadius: 24, paddingHorizontal: 14, paddingVertical: 8,
-    backgroundColor: BG,
+  scriptTime: {
+    fontSize: 10,
+    color: Colors.textLight,
+    marginBottom: 2,
   },
-  inputField: { flex: 1, fontSize: 13, color: '#333' },
-  sendBtn: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: MINT, justifyContent: 'center', alignItems: 'center',
+  scriptText: {
+    fontSize: 12,
+    color: '#333',
+    lineHeight: 19,
   },
-
-  // 문서 생성
-  archiveRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    alignSelf: 'flex-end', marginBottom: 16,
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 10, borderWidth: 0.5, borderColor: '#eee',
-    backgroundColor: BG,
+  chatPanel: {
+    backgroundColor: Colors.white,
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.border,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
-  archiveRowTxt: { fontSize: 12, color: '#888' },
-  docSectionTitle: { fontSize: 12, fontWeight: '500', color: '#888', marginBottom: 10 },
-  templateGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
-  templateItem: { alignItems: 'center', gap: 5 },
-  templateIconBox: {
-    width: 52, height: 60, borderRadius: 10,
-    borderWidth: 0.5, borderColor: '#eee', backgroundColor: BG,
-    justifyContent: 'center', alignItems: 'center', position: 'relative',
+  panelHandleButton: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 6,
   },
-  templateIconBoxSel: { borderWidth: 1.5, borderColor: MINT, backgroundColor: MINT_LIGHT },
-  tCheck: {
-    position: 'absolute', top: -5, right: -5,
-    width: 15, height: 15, borderRadius: 8,
-    backgroundColor: MINT, justifyContent: 'center', alignItems: 'center',
+  panelHandle: {
+    width: 36,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#ddd',
   },
-  templateLbl: { fontSize: 11, color: '#aaa', textAlign: 'center' },
-  templateLblSel: { color: MINT, fontWeight: '500' },
-  formatGrid: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  formatItem: {
-    flex: 1, alignItems: 'center', gap: 5, paddingVertical: 12,
-    borderRadius: 10, borderWidth: 0.5, borderColor: '#eee', backgroundColor: BG,
+  panelTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 8,
   },
-  formatItemSel: { borderWidth: 1.5, borderColor: MINT, backgroundColor: MINT_LIGHT },
-  formatLbl: { fontSize: 11, color: '#aaa' },
-  formatLblSel: { color: MINT, fontWeight: '500' },
-  genBtn: {
-    backgroundColor: MINT, paddingVertical: 13,
-    borderRadius: 12, alignItems: 'center', marginBottom: 10,
+  panelTitle: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#888',
   },
-  genBtnTxt: { fontSize: 14, fontWeight: '500', color: '#fff' },
-  docDoneCard: {
-    backgroundColor: MINT_LIGHT, borderRadius: 14,
-    padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10,
+  chatScroll: {
+    maxHeight: 112,
   },
-  docDoneIcon: {
-    width: 40, height: 46, borderRadius: 6,
-    backgroundColor: '#fff', borderWidth: 0.5, borderColor: '#b8e8d8',
-    justifyContent: 'center', alignItems: 'center', flexShrink: 0,
+  chatList: {
+    gap: 5,
+    paddingBottom: 3,
   },
-  docDoneInfo: { flex: 1, minWidth: 0 },
-  docDoneTitle: { fontSize: 12, fontWeight: '500', color: MINT },
-  docDoneSub: { fontSize: 10, color: '#5DCAA5', marginTop: 2 },
-  openBtn: {
-    paddingHorizontal: 12, paddingVertical: 6,
-    borderRadius: 12, backgroundColor: MINT, flexShrink: 0,
+  chatAi: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.bg,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    maxWidth: '88%',
   },
-  openBtnTxt: { fontSize: 11, color: '#fff', fontWeight: '500' },
-
-  // 보관함 모달
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modalSheet: {
-    backgroundColor: '#fff', borderTopLeftRadius: 24,
-    borderTopRightRadius: 24, padding: 24, paddingBottom: 40,
+  chatMine: {
+    alignSelf: 'flex-end',
+    backgroundColor: Colors.mintLight,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    maxWidth: '88%',
   },
-  modalHandle: {
-    width: 40, height: 4, borderRadius: 2,
-    backgroundColor: '#e0e0e0', alignSelf: 'center', marginBottom: 16,
+  chatAiText: {
+    fontSize: 11,
+    color: '#444',
+    lineHeight: 16,
   },
-  modalTitle: { fontSize: 16, fontWeight: '600', color: '#222', marginBottom: 16, textAlign: 'center' },
-  archiveItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  archiveIcon: {
-    width: 42, height: 48, borderRadius: 7,
-    backgroundColor: MINT_LIGHT, justifyContent: 'center', alignItems: 'center',
+  chatMineText: {
+    fontSize: 11,
+    color: '#0F6E56',
+    lineHeight: 16,
   },
-  archiveInfo: { flex: 1 },
-  archiveTitle: { fontSize: 13, fontWeight: '500', color: '#222' },
-  archiveSub: { fontSize: 11, color: '#aaa', marginTop: 2 },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.bg,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#e0f0eb',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 6,
+  },
+  input: {
+    flex: 1,
+    fontSize: 11,
+    color: Colors.textDark,
+    paddingVertical: 0,
+  },
 });

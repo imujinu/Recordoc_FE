@@ -1,19 +1,19 @@
-import { View, Text, TouchableOpacity } from 'react-native';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { styles } from './TabBar.styles';
 import { Colors } from '@/styles/theme';
+import { useNewItemSheet } from './NewItemSheet';
+import { styles } from './TabBar.styles';
 
 const TABS = [
   { name: 'index', label: '홈', icon: 'home', iconOutline: 'home-outline' },
-  { name: 'my-work', label: '내 작업', icon: 'layers', iconOutline: 'layers-outline' },
-  { name: 'chat', label: '업로드', icon: 'cloud-upload', iconOutline: 'cloud-upload-outline' },
+  { name: 'my-work', label: '내 작업', icon: 'folder', iconOutline: 'folder-outline' },
+  { name: 'graph', label: '그래프', icon: 'git-network', iconOutline: 'git-network-outline' },
   { name: 'more', label: '더보기', icon: 'ellipsis-horizontal', iconOutline: 'ellipsis-horizontal' },
 ];
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
-  const router = useRouter();
+  const { openSheet } = useNewItemSheet();
 
   return (
     <View style={styles.tabBar}>
@@ -26,8 +26,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
             onPress={() => navigation.navigate(tab.name)}
           >
             <Ionicons
-              name={(isActive ? tab.icon : tab.iconOutline) as any}
-              size={24}
+              name={(isActive ? tab.icon : tab.iconOutline) as keyof typeof Ionicons.glyphMap}
+              size={22}
               color={isActive ? Colors.mint : Colors.textLight}
             />
             <Text style={isActive ? styles.tabLabelActive : styles.tabLabel}>{tab.label}</Text>
@@ -35,9 +35,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         );
       })}
 
-      {/* 중앙 mic FAB — 탭 라우트 아님, RecordingScreen 모달 진입점 */}
-      <TouchableOpacity style={styles.recButton} onPress={() => router.push('/recording')}>
-        <Ionicons name="mic" size={26} color={Colors.white} />
+      <TouchableOpacity style={styles.recButton} onPress={openSheet}>
+        <Ionicons name="add" size={28} color={Colors.white} />
       </TouchableOpacity>
 
       {TABS.slice(2).map((tab, index) => {
@@ -50,8 +49,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
             onPress={() => navigation.navigate(tab.name)}
           >
             <Ionicons
-              name={(isActive ? tab.icon : tab.iconOutline) as any}
-              size={24}
+              name={(isActive ? tab.icon : tab.iconOutline) as keyof typeof Ionicons.glyphMap}
+              size={22}
               color={isActive ? Colors.mint : Colors.textLight}
             />
             <Text style={isActive ? styles.tabLabelActive : styles.tabLabel}>{tab.label}</Text>

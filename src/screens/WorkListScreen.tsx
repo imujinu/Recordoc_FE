@@ -1,57 +1,75 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
   SafeAreaView,
   ScrollView,
-  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { Colors } from '@/styles/theme';
+import { useNewItemSheet } from '@/components/NewItemSheet';
 
-const MINT = '#22C9A0';
-const MINT_LIGHT = '#E6F7F3';
-const BG = '#F7FAF9';
+const FOLDER_COLORS = [
+  { bg: Colors.mintLight, icon: Colors.mint },
+  { bg: '#EEEDFE', icon: '#7F77DD' },
+  { bg: '#FAECE7', icon: '#D85A30' },
+];
 
 type WorkItem = {
   id: number;
-  type: string;
+  type: 'audio' | 'pdf';
   title: string;
   status: 'converting' | 'done';
   date?: string;
   progress?: number;
   eta?: string;
-  icon: keyof typeof Ionicons.glyphMap;
 };
+
+type FolderItem = {
+  id: number;
+  title: string;
+  fileCount: number;
+  badge?: number;
+};
+
+const MOCK_FOLDERS: FolderItem[] = [
+  { id: 1, title: '3월 회의', fileCount: 4, badge: 2 },
+  { id: 2, title: '알고리즘 강의', fileCount: 7 },
+  { id: 3, title: '마케팅 기획', fileCount: 2 },
+  { id: 4, title: '지식 그래프', fileCount: 12 },
+];
 
 const MOCK_ITEMS: WorkItem[] = [
   {
     id: 1,
-    type: '녹음',
-    title: '3월 마케팅 팀 회의록',
+    type: 'audio',
+    title: '3월 마케팅 회의록',
     status: 'converting',
     progress: 67,
-    eta: '약 1분 20초 후',
-    icon: 'mic-outline',
+    eta: '약 1분 20초',
   },
   {
     id: 2,
-    type: 'PDF',
-    title: '알고리즘 강의 요약본',
+    type: 'audio',
+    title: '팀 미팅 0602',
     status: 'done',
-    date: '2026. 6. 1. 오전 10:30',
-    icon: 'document-text-outline',
+    date: '2026. 6. 1. 오전 11:02',
+  },
+  {
+    id: 3,
+    type: 'pdf',
+    title: '알고리즘 요약본',
+    status: 'done',
+    date: 'PDF · 41MB',
   },
 ];
 
-const SORT_OPTIONS = ['최신순', '오래된순', '이름순'];
-
 export default function WorkListScreen() {
   const [items, setItems] = useState(MOCK_ITEMS);
-  const [sortModal, setSortModal] = useState(false);
-  const [selectedSort, setSelectedSort] = useState('최신순');
+  const { openSheet } = useNewItemSheet();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -60,9 +78,11 @@ export default function WorkListScreen() {
           if (item.status === 'converting' && item.progress !== undefined) {
             const next = Math.min(item.progress + 1, 100);
             const remaining = Math.round(((100 - next) / 100) * 80);
-            const eta = remaining > 60
-              ? `약 ${Math.floor(remaining / 60)}분 ${remaining % 60}초 후`
-              : `약 ${remaining}초 후`;
+            const eta =
+              remaining > 60
+                ? `약 ${Math.floor(remaining / 60)}분 ${remaining % 60}초`
+                : `약 ${remaining}초`;
+
             if (next === 100) {
               return {
                 ...item,
@@ -71,212 +91,280 @@ export default function WorkListScreen() {
                 progress: 100,
               };
             }
+
             return { ...item, progress: next, eta };
           }
           return item;
         })
       );
     }, 300);
+
     return () => clearInterval(interval);
   }, []);
 
+  const openItem = (item: WorkItem) => {
+    if (item.status === 'converting') return;
+    router.push(item.type === 'pdf' ? '/pdf' : '/detail');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* 헤더 */}
       <View style={styles.header}>
         <Text style={styles.title}>내 작업</Text>
-        <TouchableOpacity
-          style={styles.sortBtn}
-          onPress={() => setSortModal(true)}
-        >
-          <Ionicons name="swap-vertical-outline" size={14} color="#888" />
-          <Text style={styles.sortTxt}>{selectedSort}</Text>
-          <Ionicons name="chevron-down" size={12} color="#aaa" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.iconButton}>
+            <Ionicons name="search" size={17} color={Colors.mint} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconButton}>
+            <Ionicons name="ellipsis-horizontal" size={18} color={Colors.mint} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* 목록 */}
-      <ScrollView contentContainerStyle={styles.list}>
-        {items.map((item) => (
-          <View key={item.id} style={styles.row}>
-            <View style={styles.rowTop}>
-              <View style={styles.rowIcon}>
-                <Ionicons name={item.icon} size={20} color={MINT} />
-              </View>
-              <View style={styles.rowInfo}>
-                <Text style={styles.rowType}>{item.type}</Text>
-                <Text style={styles.rowTitle} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                {item.status === 'converting' ? (
-                  <View style={styles.convertingRow}>
-                    <Ionicons name="reload-outline" size={11} color={MINT} />
-                    <Text style={styles.convertingTxt}>글자 변환중...</Text>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={15} color="#bbb" />
+          <Text style={styles.searchText}>파일 또는 폴더 검색...</Text>
+        </View>
+
+        <Text style={styles.sectionLabel}>폴더</Text>
+        <View style={styles.grid}>
+          {MOCK_FOLDERS.map((folder, index) => (
+            <TouchableOpacity
+              key={folder.id}
+              style={styles.card}
+              activeOpacity={0.8}
+              onPress={() => router.push('/folder')}
+            >
+              <View style={[styles.itemIcon, { backgroundColor: FOLDER_COLORS[index % 3].bg }]}>
+                <Ionicons name="folder" size={27} color={FOLDER_COLORS[index % 3].icon} />
+                {folder.badge && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{folder.badge}</Text>
                   </View>
-                ) : (
-                  <Text style={styles.rowDate}>{item.date}</Text>
                 )}
               </View>
-              {item.status === 'converting' ? (
-                <TouchableOpacity style={styles.stopBtn}>
-                  <Ionicons name="stop" size={13} color="#FF5A5A" />
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity style={styles.viewBtn} onPress={() => router.push('/detail')}>
-                  <Text style={styles.viewBtnTxt}>보기</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+              <Text style={styles.itemName} numberOfLines={2}>
+                {folder.title}
+              </Text>
+              <Text style={styles.itemMeta}>파일 {folder.fileCount}개</Text>
+            </TouchableOpacity>
+          ))}
 
-            {/* 진행률 바 */}
-            {item.status === 'converting' && item.progress !== undefined && (
-              <View style={styles.progressSection}>
-                <View style={styles.progressMeta}>
-                  <Text style={styles.progressLabel}>변환 진행률</Text>
-                  <Text style={styles.progressPct}>{item.progress}%</Text>
-                </View>
-                <View style={styles.progressBg}>
-                  <View
-                    style={[styles.progressFill, { width: `${item.progress}%` }]}
-                  />
-                </View>
-                <Text style={styles.progressEta}>예상 완료 시간 · {item.eta}</Text>
-              </View>
-            )}
-          </View>
-        ))}
-      </ScrollView>
+          <TouchableOpacity style={styles.newCard} activeOpacity={0.8} onPress={openSheet}>
+            <Ionicons name="add" size={22} color={Colors.mint} />
+            <Text style={[styles.itemName, styles.newText]}>새 파일</Text>
+          </TouchableOpacity>
+        </View>
 
-      {/* 정렬 모달 */}
-      <Modal visible={sortModal} transparent animationType="slide">
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setSortModal(false)}
-        >
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>정렬 기준</Text>
-            {SORT_OPTIONS.map((option) => (
-              <TouchableOpacity
-                key={option}
-                style={styles.sortOption}
-                onPress={() => {
-                  setSelectedSort(option);
-                  setSortModal(false);
-                }}
+        <Text style={styles.sectionLabel}>최근 파일</Text>
+        <View style={styles.grid}>
+          {items.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              style={[styles.card, item.status === 'converting' && styles.convertingCard]}
+              activeOpacity={0.8}
+              onPress={() => openItem(item)}
+            >
+              <View
+                style={[
+                  styles.itemIcon,
+                  item.status === 'converting'
+                    ? styles.convertingIcon
+                    : item.type === 'pdf'
+                      ? styles.pdfIcon
+                      : styles.audioIcon,
+                ]}
               >
-                <Text style={[
-                  styles.sortOptionTxt,
-                  selectedSort === option && styles.sortOptionActive,
-                ]}>
-                  {option}
-                </Text>
-                {selectedSort === option && (
-                  <Ionicons name="checkmark" size={18} color={MINT} />
+                <Ionicons
+                  name={item.type === 'pdf' ? 'document-text-outline' : 'mic-outline'}
+                  size={23}
+                  color={item.status === 'converting' ? '#D85A30' : item.type === 'pdf' ? '#7F77DD' : Colors.mint}
+                />
+                {item.status === 'converting' && (
+                  <View style={styles.progressRing}>
+                    <Text style={styles.progressRingText}>{item.progress}</Text>
+                  </View>
                 )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      
+              </View>
+              <Text style={styles.itemName} numberOfLines={2}>
+                {item.title}
+              </Text>
+              <Text style={[styles.itemMeta, item.status === 'converting' && styles.convertingText]}>
+                {item.status === 'converting' ? `변환중 ${item.progress}%` : item.date}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: {
+    flex: 1,
+    backgroundColor: Colors.bg,
+  },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingHorizontal: 18,
-    paddingVertical: 14, backgroundColor: '#fff',
-    borderBottomWidth: 0.5, borderBottomColor: '#eee',
+    backgroundColor: Colors.white,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  title: { fontSize: 17, fontWeight: '600', color: '#222' },
-  sortBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 16, borderWidth: 0.5, borderColor: '#ddd',
-    backgroundColor: '#f8f8f8',
+  title: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textDark,
   },
-  sortTxt: { fontSize: 12, color: '#888' },
-  list: { padding: 14, gap: 8 },
-  row: {
-    backgroundColor: '#fff', borderRadius: 14,
-    borderWidth: 0.5, borderColor: '#e8f4f0', padding: 14,
+  headerActions: {
+    flexDirection: 'row',
+    gap: 7,
   },
-  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  rowIcon: {
-    width: 40, height: 40, borderRadius: 10,
-    backgroundColor: MINT_LIGHT,
-    justifyContent: 'center', alignItems: 'center', flexShrink: 0,
+  iconButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: '#F0FAF7',
+    borderWidth: 0.5,
+    borderColor: '#c8ede3',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  rowInfo: { flex: 1, minWidth: 0 },
-  rowType: { fontSize: 11, color: MINT, fontWeight: '500', marginBottom: 2 },
-  rowTitle: { fontSize: 13, fontWeight: '500', color: '#222' },
-  rowDate: { fontSize: 11, color: '#aaa', marginTop: 2 },
-  convertingRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
-  convertingTxt: { fontSize: 11, color: '#aaa' },
-  stopBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: '#fff3f3', borderWidth: 0.5,
-    borderColor: '#ffc5c5', justifyContent: 'center', alignItems: 'center',
-    flexShrink: 0,
+  content: {
+    paddingBottom: 16,
   },
-  viewBtn: {
-    paddingHorizontal: 14, paddingVertical: 6,
-    borderRadius: 20, backgroundColor: MINT_LIGHT, flexShrink: 0,
-  },
-  viewBtnTxt: { fontSize: 12, color: MINT, fontWeight: '500' },
-  progressSection: { marginTop: 10 },
-  progressMeta: {
-    flexDirection: 'row', justifyContent: 'space-between',
+  searchBar: {
+    marginHorizontal: 12,
+    marginTop: 10,
     marginBottom: 6,
+    backgroundColor: Colors.white,
+    borderWidth: 0.5,
+    borderColor: '#e0f0eb',
+    borderRadius: 11,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
   },
-  progressLabel: { fontSize: 11, color: '#aaa' },
-  progressPct: { fontSize: 12, fontWeight: '500', color: MINT },
-  progressBg: {
-    width: '100%', height: 5, backgroundColor: '#f0f0f0',
-    borderRadius: 4, overflow: 'hidden',
+  searchText: {
+    fontSize: 12,
+    color: '#bbb',
   },
-  progressFill: { height: '100%', backgroundColor: MINT, borderRadius: 4 },
-  progressEta: { fontSize: 11, color: '#aaa', marginTop: 5 },
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end',
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#888',
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    paddingBottom: 4,
   },
-  modalSheet: {
-    backgroundColor: '#fff', borderTopLeftRadius: 24,
-    borderTopRightRadius: 24, padding: 24, paddingBottom: 40,
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
-  modalHandle: {
-    width: 40, height: 4, borderRadius: 2,
-    backgroundColor: '#e0e0e0', alignSelf: 'center', marginBottom: 16,
+  card: {
+    width: '31.8%',
+    minHeight: 96,
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
+    alignItems: 'center',
+    gap: 5,
   },
-  modalTitle: {
-    fontSize: 16, fontWeight: '600', color: '#222',
-    marginBottom: 12, textAlign: 'center',
+  convertingCard: {
+    backgroundColor: '#FFFAF5',
+    borderColor: '#f0e0c8',
   },
-  sortOption: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingVertical: 14,
-    borderBottomWidth: 0.5, borderBottomColor: '#f0f0f0',
+  newCard: {
+    width: '31.8%',
+    minHeight: 96,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#c8ede3',
+    backgroundColor: Colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 6,
   },
-  sortOptionTxt: { fontSize: 15, color: '#333' },
-  sortOptionActive: { color: MINT, fontWeight: '500' },
-  tabBar: {
-    flexDirection: 'row', backgroundColor: '#fff',
-    borderTopWidth: 0.5, borderTopColor: '#eee',
-    paddingBottom: 24, paddingTop: 10,
-    alignItems: 'center', justifyContent: 'space-around',
+  itemIcon: {
+    width: 46,
+    height: 40,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  tabItem: { alignItems: 'center', gap: 3 },
-  tabLabel: { fontSize: 10, color: '#aaa' },
-  tabLabelActive: { color: MINT },
-  recButton: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: MINT, justifyContent: 'center',
-    alignItems: 'center', marginTop: -18,
+  audioIcon: {
+    backgroundColor: Colors.mintLight,
+  },
+  pdfIcon: {
+    backgroundColor: '#EEEDFE',
+  },
+  convertingIcon: {
+    backgroundColor: '#FFF3E8',
+  },
+  itemName: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: Colors.textDark,
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  itemMeta: {
+    fontSize: 9,
+    color: Colors.textLight,
+    textAlign: 'center',
+  },
+  newText: {
+    color: Colors.mint,
+  },
+  badge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    backgroundColor: '#FF5A5A',
+    borderRadius: 5,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  badgeText: {
+    fontSize: 8,
+    color: Colors.white,
+    fontWeight: '600',
+  },
+  progressRing: {
+    position: 'absolute',
+    right: -6,
+    bottom: -7,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 3,
+    borderColor: '#D85A30',
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressRingText: {
+    fontSize: 7,
+    fontWeight: '700',
+    color: '#D85A30',
+  },
+  convertingText: {
+    color: '#D85A30',
+    fontWeight: '500',
   },
 });

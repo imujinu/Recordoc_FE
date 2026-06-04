@@ -33,6 +33,7 @@ export const WS_BASE_URL = "ws://10.0.2.2:8000";
 
 ```bash
 npm install
+npx expo install expo-font expo-constants expo-linking react-native-worklets
 ```
 
 ### 4. Android development build 설치 및 실행
@@ -78,3 +79,9 @@ npx expo start --dev-client
 - 실기기 테스트에서 `localhost` 또는 `127.0.0.1`은 휴대폰 자기 자신을 뜻합니다. 개발 PC의 LAN IP를 사용해야 합니다.
 - native dependency나 `app.json` plugin을 바꾼 뒤에는 `npx expo run:android`를 다시 실행해야 합니다.
 - `npx tsc --noEmit`은 현재 기존 `src/screens/DetailScreen.tsx:126`의 `ScrollView` ref 타입 오류 때문에 실패할 수 있습니다.
+
+sdk.dir=C\:\\Users\\notebiz004\\AppData\\Local\\Android\\Sdk
+
+Set-Content -Path "C:\github\Recordoc\Recordoc_FE\android\app\src\main\res\values\colors.xml" -Value '<?xml version="1.0" encoding="utf-8"?><resources><color name="iconBackground">#B8D8DC</color></resources>'
+
+Set-Content -Path "C:\github\Recordoc\Recordoc_FE\android\app\src\main\res\values\colors.xml" -Value '<?xml version="1.0" encoding="utf-8"?><resources><color name="iconBackground">#B8D8DC</color><color name="splashscreen_background">#B8D8DC</color></resources>'
