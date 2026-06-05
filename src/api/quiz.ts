@@ -1,0 +1,24 @@
+import { API_BASE_URL } from '@/constants/config';
+import { authFetch } from './auth';
+
+export type QuizStatus = 'correct' | 'wrong' | 'untested' | 'skipped';
+
+export type QuizNodeStatusUpdate = {
+  node_id: string;
+  quiz_status: QuizStatus;
+};
+
+export async function updateQuizNodeStatuses(updates: QuizNodeStatusUpdate[]): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/graph/quiz-status`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ updates }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail ?? '퀴즈 결과 반영에 실패했습니다.');
+  }
+}

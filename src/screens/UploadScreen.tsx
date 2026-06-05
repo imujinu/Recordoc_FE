@@ -1,270 +1,235 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  SafeAreaView, ScrollView, Alert, ActivityIndicator,
+  ActivityIndicator,
+  Alert,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import { uploadTranscript, type TranscriptLanguage, type DomainType } from '@/api/audio';
-
-const MINT = '#22C9A0';
-const MINT_LIGHT = '#E6F7F3';
-const BG = '#F7FAF9';
-
-type Language = '한국어' | '영어' | '한국어+영어';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Colors } from '@/styles/theme';
+import {
+  AUDIO_EXTENSIONS,
+  DOCUMENT_EXTENSIONS,
+  getFileExtension,
+  inferMimeType,
+  isAllowedUploadFile,
+  type FileUploadResponse,
+  type UploadKind,
+  uploadFile,
+} from '@/api/files';
 
 type SelectedFile = {
-  name: string;
-  size: string;
-  duration: string;
-  type: string;
-  uri: string;
-  mimeType: string;
+  asset: DocumentPicker.DocumentPickerAsset;
+  extension: string;
+  sizeText: string;
 };
 
-const DOMAIN_OPTIONS = ['일반', '법률', '의학', '과학', 'IT', '종교'] as const;
-type DomainOption = typeof DOMAIN_OPTIONS[number];
-
-const DOMAIN_API_KEY: Record<DomainOption, DomainType> = {
-  '일반': 'general',
-  '법률': 'legal',
-  '의학': 'medical',
-  '과학': 'science',
-  'IT': 'it',
-  '종교': 'religion',
+type UploadModeConfig = {
+  title: string;
+  cardTitle: string;
+  cardSub: string;
+  selectedLabel: string;
+  completeTitle: string;
+  pickerTypes: string[];
+  icon: keyof typeof Ionicons.glyphMap;
 };
 
-const LANGUAGE_API_MAP: Record<Language, TranscriptLanguage[]> = {
-  '한국어': ['ko'],
-  '영어': ['en'],
-  '한국어+영어': ['ko', 'en'],
+const MODE_CONFIG: Record<UploadKind, UploadModeConfig> = {
+  audio: {
+    title: '음성 파일 업로드',
+    cardTitle: '음성 파일 선택',
+    cardSub: 'mp3, m4a, wav, webm',
+    selectedLabel: '선택한 음성 파일',
+    completeTitle: '전사와 인덱싱이 완료되었습니다',
+    pickerTypes: ['audio/*'],
+    icon: 'musical-note-outline',
+  },
+  document: {
+    title: '문서 업로드',
+    cardTitle: '문서 파일 선택',
+    cardSub: 'pdf, ppt, pptx',
+    selectedLabel: '선택한 문서 파일',
+    completeTitle: '텍스트 추출과 인덱싱이 완료되었습니다',
+    pickerTypes: [
+      'application/pdf',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ],
+    icon: 'document-text-outline',
+  },
 };
 
-const RECENT_FILES = [
-  { name: '회의녹음_0601.m4a', duration: '42분', size: '23.4MB' },
-  { name: '강의녹음_알고리즘.mp3', duration: '1시간 18분', size: '41.2MB' },
-];
+function normalizeKind(value: unknown): UploadKind {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === 'document' ? 'document' : 'audio';
+}
+
+function formatSize(size?: number): string {
+  if (!size) return '알 수 없음';
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))}KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function statusLabel(status?: string): string {
+  if (!status) return '완료';
+  if (status === 'completed' || status === 'done') return '완료';
+  if (status === 'failed') return '실패';
+  if (status === 'processing') return '처리 중';
+  return status;
+}
+
+function errorTitle(error: unknown): string {
+  return error instanceof Error ? error.message : '파일 업로드에 실패했습니다.';
+}
 
 export default function UploadScreen() {
+  const params = useLocalSearchParams();
+  const kind = normalizeKind(params.kind);
+  const config = MODE_CONFIG[kind];
+  const allowedExtensions = useMemo(
+    () => (kind === 'audio' ? AUDIO_EXTENSIONS : DOCUMENT_EXTENSIONS),
+    [kind]
+  );
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
-  const [language, setLanguage] = useState<Language>('한국어');
-  const [selectedDomain, setSelectedDomain] = useState<DomainOption>('일반');
-  const [isLoading, setIsLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<FileUploadResponse | null>(null);
+
+  useEffect(() => {
+    setSelectedFile(null);
+    setUploadResult(null);
+    setUploading(false);
+  }, [kind]);
 
   const pickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'audio/*',
+        type: config.pickerTypes,
         copyToCacheDirectory: true,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        const asset = result.assets[0];
-        const sizeInMB = asset.size
-          ? `${(asset.size / (1024 * 1024)).toFixed(1)}MB`
-          : '알 수 없음';
-        const ext = asset.name.split('.').pop()?.toUpperCase() ?? '';
+      if (result.canceled || !result.assets[0]) return;
 
-        setSelectedFile({
-          name: asset.name,
-          size: sizeInMB,
-          duration: '측정 중...',
-          type: ext,
-          uri: asset.uri,
-          mimeType: asset.mimeType ?? 'audio/mpeg',
-        });
+      const asset = result.assets[0];
+      if (!isAllowedUploadFile(asset.name, kind)) {
+        Alert.alert('지원하지 않는 파일', `${allowedExtensions.join(', ')} 파일만 업로드할 수 있어요.`);
+        return;
       }
+
+      setSelectedFile({
+        asset,
+        extension: getFileExtension(asset.name).toUpperCase(),
+        sizeText: formatSize(asset.size),
+      });
+      setUploadResult(null);
     } catch {
       Alert.alert('오류', '파일을 불러오는 중 문제가 발생했어요.');
     }
   };
 
-  const selectRecentFile = (file: typeof RECENT_FILES[0]) => {
-    const ext = file.name.split('.').pop()?.toUpperCase() ?? '';
-    setSelectedFile({
-      name: file.name,
-      size: file.size,
-      duration: file.duration,
-      type: ext,
-      uri: '',
-      mimeType: 'audio/mpeg',
-    });
-  };
+  const submitUpload = async () => {
+    if (!selectedFile || uploading) return;
 
-  const selectDomain = (domain: DomainOption) => {
-    setSelectedDomain(domain);
-  };
-
-  const handleConvert = async () => {
-    if (!selectedFile) return;
-    if (!selectedFile.uri) {
-      Alert.alert('오류', '실제 파일을 선택해주세요.');
-      return;
-    }
-
-    setIsLoading(true);
+    setUploading(true);
     try {
-      await uploadTranscript({
-        fileUri: selectedFile.uri,
-        fileName: selectedFile.name,
-        mimeType: selectedFile.mimeType,
-        languages: LANGUAGE_API_MAP[language],
-        domainType: DOMAIN_API_KEY[selectedDomain],
-      });
-      Alert.alert('변환 시작', '변환 요청이 접수됐어요. 완료되면 목록에서 확인할 수 있어요.');
-      setSelectedFile(null);
-    } catch (e) {
-      Alert.alert('오류', e instanceof Error ? e.message : '변환 요청에 실패했습니다.');
+      const result = await uploadFile(selectedFile.asset);
+      setUploadResult(result);
+    } catch (error) {
+      Alert.alert('업로드 실패', errorTitle(error));
     } finally {
-      setIsLoading(false);
+      setUploading(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 네비게이션 */}
       <View style={styles.nav}>
-        <TouchableOpacity>
-          <Ionicons name="arrow-back" size={20} color="#333" />
+        <TouchableOpacity style={styles.navButton} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={20} color={Colors.textDark} />
         </TouchableOpacity>
-        <Text style={styles.navTitle}>음성파일 업로드</Text>
-        <View style={{ width: 20 }} />
+        <Text style={styles.navTitle}>{config.title}</Text>
+        <View style={styles.navButton} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
         {!selectedFile ? (
-          /* ───── B: 소스 선택 화면 ───── */
-          <>
-            <TouchableOpacity style={[styles.uploadCard, styles.uploadCardPrimary]} onPress={pickFile}>
-              <View style={styles.cardIcon}>
-                <Ionicons name="folder-open-outline" size={22} color={MINT} />
-              </View>
-              <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>내 파일에서 선택</Text>
-                <Text style={styles.cardSub}>mp3, m4a, wav, aac · 최대 500MB</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={MINT} />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.uploadCard}>
-              <View style={[styles.cardIcon, styles.cardIconGray]}>
-                <Ionicons name="mic-outline" size={22} color="#aaa" />
-              </View>
-              <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>녹음 앱에서 가져오기</Text>
-                <Text style={styles.cardSub}>기기의 녹음 파일을 불러와요</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#ccc" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.uploadCard}>
-              <View style={[styles.cardIcon, styles.cardIconGray]}>
-                <Ionicons name="logo-google" size={22} color="#aaa" />
-              </View>
-              <View style={styles.cardInfo}>
-                <Text style={styles.cardTitle}>Google Drive</Text>
-                <Text style={styles.cardSub}>드라이브에서 직접 불러오기</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#ccc" />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <Text style={styles.sectionTitle}>최근 파일</Text>
-            {RECENT_FILES.map((file) => (
-              <TouchableOpacity
-                key={file.name}
-                style={styles.recentItem}
-                onPress={() => selectRecentFile(file)}
-              >
-                <View style={styles.recentIcon}>
-                  <Ionicons name="musical-note-outline" size={16} color={MINT} />
-                </View>
-                <View style={styles.recentInfo}>
-                  <Text style={styles.recentName} numberOfLines={1}>{file.name}</Text>
-                  <Text style={styles.recentMeta}>{file.size} · {file.duration}</Text>
-                </View>
-                <Text style={styles.recentSelect}>선택</Text>
-              </TouchableOpacity>
-            ))}
-          </>
+          <TouchableOpacity style={[styles.uploadCard, styles.uploadCardPrimary]} onPress={pickFile}>
+            <View style={styles.cardIcon}>
+              <Ionicons name="folder-open-outline" size={22} color={Colors.mint} />
+            </View>
+            <View style={styles.cardInfo}>
+              <Text style={styles.cardTitle}>{config.cardTitle}</Text>
+              <Text style={styles.cardSub}>{config.cardSub}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.mint} />
+          </TouchableOpacity>
         ) : (
-          /* ───── C: 파일 선택 후 화면 ───── */
           <>
-            {/* 업로드된 파일 카드 */}
             <View style={styles.uploadedCard}>
               <View style={styles.uploadedTop}>
                 <View style={styles.uploadedIcon}>
-                  <Ionicons name="musical-note-outline" size={24} color={MINT} />
+                  <Ionicons name={config.icon} size={24} color={Colors.mint} />
                 </View>
                 <View style={styles.uploadedInfo}>
+                  <Text style={styles.selectedLabel}>{config.selectedLabel}</Text>
                   <Text style={styles.uploadedName} numberOfLines={1}>
-                    {selectedFile.name}
+                    {selectedFile.asset.name}
                   </Text>
                   <Text style={styles.uploadedMeta}>
-                    {selectedFile.size} · {selectedFile.duration} · {selectedFile.type}
+                    {selectedFile.sizeText} · {selectedFile.extension || inferMimeType(selectedFile.asset.name)}
                   </Text>
                 </View>
-                <TouchableOpacity onPress={() => setSelectedFile(null)}>
-                  <Text style={styles.changeBtn}>변경</Text>
-                </TouchableOpacity>
-              </View>
-              <View style={styles.progBg}>
-                <View style={styles.progFill} />
-              </View>
-              <View style={styles.uploadedDone}>
-                <Ionicons name="checkmark-circle" size={14} color={MINT} />
-                <Text style={styles.uploadedDoneTxt}>업로드 완료</Text>
-              </View>
-            </View>
-
-            {/* 변환 언어 */}
-            <View style={styles.optionSection}>
-              <Text style={styles.optionTitle}>변환 언어</Text>
-              <View style={styles.chipRow}>
-                {(['한국어', '영어', '한국어+영어'] as Language[]).map((lang) => (
-                  <TouchableOpacity
-                    key={lang}
-                    style={[styles.chip, language === lang && styles.chipSel]}
-                    onPress={() => setLanguage(lang)}
-                  >
-                    <Text style={[styles.chipTxt, language === lang && styles.chipTxtSel]}>
-                      {lang}
-                    </Text>
+                {!uploadResult && (
+                  <TouchableOpacity onPress={() => setSelectedFile(null)} disabled={uploading}>
+                    <Text style={[styles.changeBtn, uploading && styles.textDisabled]}>변경</Text>
                   </TouchableOpacity>
-                ))}
+                )}
               </View>
+
+              {uploading ? (
+                <View style={styles.processingRow}>
+                  <ActivityIndicator size="small" color={Colors.mint} />
+                  <Text style={styles.processingText}>업로드 및 인덱싱 중...</Text>
+                </View>
+              ) : uploadResult ? (
+                <View style={styles.resultBox}>
+                  <View style={styles.resultTitleRow}>
+                    <Ionicons name="checkmark-circle" size={15} color={Colors.mint} />
+                    <Text style={styles.resultTitle}>{config.completeTitle}</Text>
+                  </View>
+                  <Text style={styles.resultMeta} numberOfLines={1}>
+                    URI {uploadResult.file_uri}
+                  </Text>
+                  <Text style={styles.resultMeta}>
+                    상태 {statusLabel(uploadResult.status)} · ID {uploadResult.transcript_id}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.readyRow}>
+                  <Ionicons name="checkmark-circle" size={14} color={Colors.mint} />
+                  <Text style={styles.readyText}>업로드할 준비가 되었어요</Text>
+                </View>
+              )}
             </View>
 
-            {/* 주제 */}
-            <View style={styles.optionSection}>
-              <Text style={styles.optionTitle}>주제</Text>
-              <View style={styles.chipRow}>
-                {DOMAIN_OPTIONS.map((domain) => (
-                  <TouchableOpacity
-                    key={domain}
-                    style={[styles.chip, selectedDomain === domain && styles.chipSel]}
-                    onPress={() => selectDomain(domain)}
-                  >
-                    <Text style={[styles.chipTxt, selectedDomain === domain && styles.chipTxtSel]}>
-                      {domain}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* 변환 시작 버튼 */}
-            <TouchableOpacity
-              style={[styles.convertBtn, isLoading && styles.convertBtnDisabled]}
-              onPress={handleConvert}
-              disabled={isLoading}
-            >
-              {isLoading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.convertBtnTxt}>변환 시작하기</Text>
-              }
-            </TouchableOpacity>
+            {uploadResult ? (
+              <TouchableOpacity style={styles.convertBtn} onPress={() => router.replace('/my-work' as never)}>
+                <Text style={styles.convertBtnTxt}>내 작업에서 보기</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.convertBtn, uploading && styles.convertBtnDisabled]}
+                onPress={submitUpload}
+                disabled={uploading}
+              >
+                <Text style={styles.convertBtnTxt}>{uploading ? '처리 중...' : '업로드 시작하기'}</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
       </ScrollView>
@@ -273,83 +238,97 @@ export default function UploadScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: Colors.white },
   nav: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 12,
-    borderBottomWidth: 0.5, borderBottomColor: '#eee',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.border,
   },
-  navTitle: { fontSize: 15, fontWeight: '600', color: '#222' },
+  navButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navTitle: { fontSize: 15, fontWeight: '600', color: Colors.textDark },
   content: { padding: 18, gap: 10 },
-
   uploadCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    padding: 14, borderRadius: 14,
-    borderWidth: 0.5, borderColor: '#eee', backgroundColor: BG,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bg,
   },
-  uploadCardPrimary: { borderWidth: 1.5, borderColor: MINT },
+  uploadCardPrimary: { borderWidth: 1.5, borderColor: Colors.mint },
   cardIcon: {
-    width: 44, height: 44, borderRadius: 12,
-    backgroundColor: MINT_LIGHT,
-    justifyContent: 'center', alignItems: 'center', flexShrink: 0,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Colors.mintLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
   },
-  cardIconGray: { backgroundColor: '#f5f5f5' },
   cardInfo: { flex: 1 },
-  cardTitle: { fontSize: 13, fontWeight: '500', color: '#222', marginBottom: 2 },
-  cardSub: { fontSize: 11, color: '#aaa' },
-
-  divider: { height: 0.5, backgroundColor: '#eee', marginVertical: 4 },
-  sectionTitle: { fontSize: 12, fontWeight: '500', color: '#888', marginBottom: 4 },
-  recentItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: '#f5f5f5',
-  },
-  recentIcon: {
-    width: 34, height: 34, borderRadius: 9,
-    backgroundColor: MINT_LIGHT,
-    justifyContent: 'center', alignItems: 'center', flexShrink: 0,
-  },
-  recentInfo: { flex: 1, minWidth: 0 },
-  recentName: { fontSize: 12, fontWeight: '500', color: '#222' },
-  recentMeta: { fontSize: 11, color: '#aaa', marginTop: 1 },
-  recentSelect: { fontSize: 12, color: MINT, fontWeight: '500' },
-
+  cardTitle: { fontSize: 13, fontWeight: '500', color: Colors.textDark, marginBottom: 2 },
+  cardSub: { fontSize: 11, color: Colors.textLight },
   uploadedCard: {
-    borderRadius: 14, borderWidth: 1.5, borderColor: MINT,
-    backgroundColor: BG, padding: 14, marginBottom: 6,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.mint,
+    backgroundColor: Colors.bg,
+    padding: 14,
+    marginBottom: 6,
   },
   uploadedTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   uploadedIcon: {
-    width: 42, height: 48, borderRadius: 8,
-    backgroundColor: MINT_LIGHT, borderWidth: 0.5, borderColor: '#b8e8d8',
-    justifyContent: 'center', alignItems: 'center', flexShrink: 0,
+    width: 42,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: Colors.mintLight,
+    borderWidth: 0.5,
+    borderColor: '#b8e8d8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
   },
   uploadedInfo: { flex: 1, minWidth: 0 },
-  uploadedName: { fontSize: 13, fontWeight: '500', color: MINT },
+  selectedLabel: { fontSize: 11, color: Colors.textLight, marginBottom: 2 },
+  uploadedName: { fontSize: 13, fontWeight: '500', color: Colors.mint },
   uploadedMeta: { fontSize: 11, color: '#5DCAA5', marginTop: 2 },
-  changeBtn: { fontSize: 12, color: '#aaa' },
-  progBg: { height: 4, backgroundColor: '#d0f0e8', borderRadius: 4, marginBottom: 6 },
-  progFill: { height: '100%', width: '100%', backgroundColor: MINT, borderRadius: 4 },
-  uploadedDone: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  uploadedDoneTxt: { fontSize: 12, color: MINT, fontWeight: '500' },
-
-  optionSection: { marginBottom: 6 },
-  optionTitle: { fontSize: 12, fontWeight: '500', color: '#888', marginBottom: 8 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: 10, borderWidth: 0.5, borderColor: '#ddd',
-    backgroundColor: BG,
+  changeBtn: { fontSize: 12, color: Colors.textLight },
+  textDisabled: { opacity: 0.4 },
+  readyRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  readyText: { fontSize: 12, color: Colors.mint, fontWeight: '500' },
+  processingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  processingText: { fontSize: 12, color: Colors.mint, fontWeight: '500' },
+  resultBox: {
+    borderRadius: 10,
+    backgroundColor: Colors.white,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    padding: 10,
+    gap: 4,
   },
-  chipSel: { borderColor: MINT, backgroundColor: MINT_LIGHT },
-  chipTxt: { fontSize: 12, color: '#888' },
-  chipTxtSel: { color: MINT, fontWeight: '500' },
-
+  resultTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  resultTitle: { fontSize: 12, color: Colors.mint, fontWeight: '600' },
+  resultMeta: { fontSize: 10, color: Colors.textMid },
   convertBtn: {
-    backgroundColor: MINT, paddingVertical: 14,
-    borderRadius: 12, alignItems: 'center', marginTop: 8,
+    backgroundColor: Colors.mint,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
   },
-  convertBtnDisabled: { opacity: 0.6 },
-  convertBtnTxt: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  convertBtnDisabled: {
+    opacity: 0.7,
+  },
+  convertBtnTxt: { fontSize: 14, fontWeight: '600', color: Colors.white },
 });
