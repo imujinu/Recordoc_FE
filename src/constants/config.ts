@@ -1,4 +1,11 @@
-// 실기기 테스트 시 개발 PC의 LAN IP로 변경 (예: http://192.168.x.x:8000)
-// Android 에뮬레이터: 10.0.2.2 | iOS 시뮬레이터: localhost
-export const API_BASE_URL = "http://192.168.0.52:8000";
-export const WS_BASE_URL = "ws://192.168.0.52:8000";
+const env = process.env as Record<string, string | undefined>;
+
+const DEFAULT_API_BASE_URL = 'http://192.168.0.52:8000';
+
+export const API_BASE_URL = env.EXPO_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+export const WS_BASE_URL = env.EXPO_PUBLIC_WS_BASE_URL ?? API_BASE_URL.replace(/^http/, 'ws');
+
+export const GOOGLE_CLIENT_ID = env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? env.GOOGLE_CLIENT_ID ?? '';
+export const GOOGLE_ANDROID_CLIENT_ID = env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? GOOGLE_CLIENT_ID;
+export const GOOGLE_IOS_CLIENT_ID = env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? GOOGLE_CLIENT_ID;
+export const GOOGLE_WEB_CLIENT_ID = env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? GOOGLE_CLIENT_ID;

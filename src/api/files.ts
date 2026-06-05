@@ -18,6 +18,52 @@ export type FileUploadResponse = {
   chunk_count?: number;
 };
 
+export type ProcessStatus = 'pending' | 'uploaded' | 'processing' | 'completed' | 'failed';
+
+export type FileProcessResponse = {
+  transcript_id: string;
+  status: string;
+  content_status: string;
+  index_status: string;
+  segment_count: number;
+  chunk_count: number;
+};
+
+export type ProcessFileResponse = FileProcessResponse;
+
+export type TranscriptSummarySegment = {
+  start_seconds?: number | string | null;
+  end_seconds?: number | string | null;
+  startSeconds?: number | string | null;
+  endSeconds?: number | string | null;
+  text?: string | null;
+};
+
+export type TranscriptSummaryChunk = {
+  summary?: string | null;
+  full_text?: string | null;
+  fullText?: string | null;
+  text?: string | null;
+  keywords?: string[] | null;
+  start_seconds?: number | string | null;
+  end_seconds?: number | string | null;
+};
+
+export type TranscriptSummaryResponse = {
+  transcript_id?: string;
+  title?: string | null;
+  status?: ProcessStatus | string | null;
+  summary?: string | null;
+  full_text?: string | null;
+  fullText?: string | null;
+  transcript?: string | null;
+  text?: string | null;
+  keywords?: string[] | null;
+  segments?: TranscriptSummarySegment[] | null;
+  chunks?: TranscriptSummaryChunk[] | null;
+  summaries?: TranscriptSummaryChunk[] | null;
+};
+
 export type FileListItem = {
   transcript_id: string;
   type?: 'file';
@@ -122,7 +168,7 @@ async function readError(response: Response, fallback: string): Promise<Error> {
   return new Error(getErrorMessage(body, fallback));
 }
 
-export async function uploadFile(asset: DocumentPickerAsset): Promise<FileUploadResponse> {
+export async function uploadFile(asset: DocumentPickerAsset, folderId?: string): Promise<FileUploadResponse> {
   const fileName = asset.name;
   const formData = new FormData();
 
@@ -136,6 +182,9 @@ export async function uploadFile(asset: DocumentPickerAsset): Promise<FileUpload
     } as unknown as Blob);
   }
   formData.append('file_name', fileName);
+  if (folderId) {
+    formData.append('folder_id', folderId);
+  }
 
   const response = await authFetch(`${API_BASE_URL}/files/upload`, {
     method: 'POST',
@@ -147,6 +196,47 @@ export async function uploadFile(asset: DocumentPickerAsset): Promise<FileUpload
   }
 
   return response.json() as Promise<FileUploadResponse>;
+}
+
+export async function processFile(transcriptId: string, signal?: AbortSignal): Promise<ProcessFileResponse> {
+  const response = await authFetch(`${API_BASE_URL}/files/${encodeURIComponent(transcriptId)}/process`, {
+    method: 'POST',
+    signal,
+  });
+
+  if (!response.ok) {
+    throw await readError(response, '요약 및 스크립트 생성에 실패했습니다.');
+  }
+
+  return response.json() as Promise<ProcessFileResponse>;
+}
+
+export async function cancelFileProcess(transcriptId: string, signal?: AbortSignal): Promise<FileProcessResponse> {
+  const response = await authFetch(`${API_BASE_URL}/files/${encodeURIComponent(transcriptId)}/cancel`, {
+    method: 'POST',
+    signal,
+  });
+
+  if (!response.ok) {
+    throw await readError(response, '요약 및 스크립트 생성을 중지하지 못했습니다.');
+  }
+
+  return response.json() as Promise<FileProcessResponse>;
+}
+
+export async function getTranscriptSummary(
+  transcriptId: string,
+  signal?: AbortSignal,
+): Promise<TranscriptSummaryResponse> {
+  const response = await authFetch(`${API_BASE_URL}/transcripts/${encodeURIComponent(transcriptId)}/summary`, {
+    signal,
+  });
+
+  if (!response.ok) {
+    throw await readError(response, '요약과 스크립트를 불러오지 못했습니다.');
+  }
+
+  return response.json() as Promise<TranscriptSummaryResponse>;
 }
 
 export async function listFiles(): Promise<FileListItem[]> {
