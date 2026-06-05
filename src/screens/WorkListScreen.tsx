@@ -147,8 +147,24 @@ export default function WorkListScreen() {
 
   const openFile = (file: FileWorkItem) => {
     const kind = inferFileKind(file);
-    const target = kind === 'audio' ? '/detail' : '/pdf';
-    router.push(`${target}?transcriptId=${encodeURIComponent(file.transcript_id)}` as never);
+    if (kind === 'audio') {
+      router.push({
+        pathname: '/detail',
+        params: {
+          transcriptId: file.transcript_id,
+          status: file.status ?? 'pending',
+          title: file.title?.trim() ?? '',
+        },
+      });
+      return;
+    }
+
+    router.push({
+      pathname: '/pdf',
+      params: {
+        transcriptId: file.transcript_id,
+      },
+    });
   };
 
   const renderFolderCard = (folder: FolderWorkItem) => {
@@ -307,7 +323,7 @@ export default function WorkListScreen() {
         <View style={styles.grid}>
           {filteredFolders.map(renderFolderCard)}
           {!showFolderEmpty && (
-            <TouchableOpacity style={styles.newCard} activeOpacity={0.8} onPress={openSheet}>
+            <TouchableOpacity style={styles.newCard} activeOpacity={0.8} onPress={() => openSheet()}>
               <Ionicons name="add" size={22} color={Colors.mint} />
               <Text style={[styles.itemName, styles.newText]}>새 파일</Text>
             </TouchableOpacity>

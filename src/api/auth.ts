@@ -1,5 +1,4 @@
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
 import { API_BASE_URL } from '@/constants/config';
 
 type AuthStatus = 'auth' | 'unauth';
@@ -49,6 +48,16 @@ async function clearAuthTokens() {
   await SecureStore.deleteItemAsync('at');
   await SecureStore.deleteItemAsync('rt');
   notifyAuthChange('unauth');
+}
+
+async function storeAuthTokens(data: TokenResponse) {
+  if (!data.access_token || !data.refresh_token) {
+    throw new Error(data.detail ?? '로그인 응답에 토큰이 없습니다.');
+  }
+
+  await SecureStore.setItemAsync('at', data.access_token);
+  await SecureStore.setItemAsync('rt', data.refresh_token);
+  notifyAuthChange('auth');
 }
 
 export async function logout(): Promise<void> {
@@ -132,8 +141,21 @@ export async function login(email: string, password: string): Promise<void> {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { detail?: string }).detail ?? '로그인에 실패했습니다.');
   }
-  const data = await res.json() as { access_token: string; refresh_token: string };
-  await SecureStore.setItemAsync('at', data.access_token);
-  await SecureStore.setItemAsync('rt', data.refresh_token);
-  notifyAuthChange('auth');
+  const data = await res.json() as TokenResponse;
+  await storeAuthTokens(data);
+}
+
+export async function loginWithGoogleIdToken(idToken: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/auth/oauth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: idToken }),
+  });
+
+  const data = (await res.json().catch(() => ({}))) as TokenResponse;
+  if (!res.ok) {
+    throw new Error(data.detail ?? 'Google 로그인에 실패했습니다.');
+  }
+
+  await storeAuthTokens(data);
 }

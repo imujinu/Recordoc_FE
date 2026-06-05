@@ -15,7 +15,7 @@ import {
 import { Colors } from '@/styles/theme';
 
 type SheetContextValue = {
-  openSheet: () => void;
+  openSheet: (folderId?: string) => void;
   closeSheet: () => void;
   workItemsRevision: number;
 };
@@ -90,12 +90,19 @@ export function NewItemSheetProvider({ children }: { children: ReactNode }) {
   const [uploading, setUploading] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [workItemsRevision, setWorkItemsRevision] = useState(0);
+  const [activeFolderId, setActiveFolderId] = useState<string | undefined>();
   const insets = useSafeAreaInsets();
 
   const value = useMemo(
     () => ({
-      openSheet: () => setVisible(true),
-      closeSheet: () => setVisible(false),
+      openSheet: (folderId?: string) => {
+        setActiveFolderId(folderId);
+        setVisible(true);
+      },
+      closeSheet: () => {
+        setVisible(false);
+        setActiveFolderId(undefined);
+      },
       workItemsRevision,
     }),
     [workItemsRevision]
@@ -119,9 +126,9 @@ export function NewItemSheetProvider({ children }: { children: ReactNode }) {
       }
 
       setUploading(true);
-      await uploadFile(asset);
+      await uploadFile(asset, activeFolderId);
       setWorkItemsRevision((prev) => prev + 1);
-      Alert.alert('업로드 완료', `${asset.name} 파일이 내 작업에 추가되었습니다.`);
+      Alert.alert('업로드 완료', `${asset.name} 파일이 ${activeFolderId ? '폴더에' : '내 작업에'} 추가되었습니다.`);
     } catch (error) {
       Alert.alert('업로드 실패', error instanceof Error ? error.message : '파일 업로드에 실패했습니다.');
     } finally {
@@ -134,6 +141,7 @@ export function NewItemSheetProvider({ children }: { children: ReactNode }) {
 
     setVisible(false);
     if (option.action === 'create-folder') {
+      setActiveFolderId(undefined);
       setFolderName('새 폴더');
       requestAnimationFrame(() => setFolderModalVisible(true));
       return;

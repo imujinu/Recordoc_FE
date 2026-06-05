@@ -120,11 +120,39 @@ export default function FolderScreen() {
   };
 
   const openFile = (file: FileWorkItem) => {
-    if (file.status === 'processing') return;
     const kind = inferFileKind(file);
-    const target = kind === 'audio' ? '/detail' : '/pdf';
-    router.push(`${target}?transcriptId=${encodeURIComponent(file.transcript_id)}` as never);
+    if (kind === 'audio') {
+      router.push({
+        pathname: '/detail',
+        params: {
+          transcriptId: file.transcript_id,
+          status: file.status ?? 'pending',
+          title: file.title?.trim() ?? '',
+        },
+      });
+      return;
+    }
+
+    router.push({
+      pathname: '/pdf',
+      params: {
+        transcriptId: file.transcript_id,
+      },
+    });
   };
+
+  const renderNewFileCard = () => (
+    <TouchableOpacity
+      style={styles.newCard}
+      activeOpacity={0.8}
+      onPress={() => {
+        if (folderId) openSheet(folderId);
+      }}
+    >
+      <Ionicons name="add" size={22} color={Colors.mint} />
+      <Text style={[styles.itemName, styles.newText]}>새 파일</Text>
+    </TouchableOpacity>
+  );
 
   const renderFiles = () => {
     if (loading) {
@@ -151,19 +179,25 @@ export default function FolderScreen() {
 
     if (files.length === 0) {
       return (
-        <View style={styles.emptyState}>
-          <Ionicons name="folder-open-outline" size={30} color={Colors.textLight} />
-          <Text style={styles.emptyTitle}>폴더가 비어 있습니다</Text>
-        </View>
+        <>
+          <View style={styles.grid}>{renderNewFileCard()}</View>
+          <View style={styles.emptyState}>
+            <Ionicons name="folder-open-outline" size={30} color={Colors.textLight} />
+            <Text style={styles.emptyTitle}>폴더가 비어 있습니다</Text>
+          </View>
+        </>
       );
     }
 
     if (filteredFiles.length === 0) {
       return (
-        <View style={styles.emptyState}>
-          <Ionicons name="search-outline" size={30} color={Colors.textLight} />
-          <Text style={styles.emptyTitle}>검색 결과가 없습니다</Text>
-        </View>
+        <>
+          <View style={styles.grid}>{renderNewFileCard()}</View>
+          <View style={styles.emptyState}>
+            <Ionicons name="search-outline" size={30} color={Colors.textLight} />
+            <Text style={styles.emptyTitle}>검색 결과가 없습니다</Text>
+          </View>
+        </>
       );
     }
 
@@ -201,10 +235,7 @@ export default function FolderScreen() {
             </TouchableOpacity>
           );
         })}
-        <TouchableOpacity style={styles.newCard} activeOpacity={0.8} onPress={openSheet}>
-          <Ionicons name="add" size={22} color={Colors.mint} />
-          <Text style={[styles.itemName, styles.newText]}>새 파일</Text>
-        </TouchableOpacity>
+        {renderNewFileCard()}
       </View>
     );
   };
