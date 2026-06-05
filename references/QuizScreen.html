@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>퀴즈</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
+body{background:#f0f0f0;display:flex;justify-content:center;padding:40px 20px;}
+.phone{width:360px;background:#F7FAF9;border-radius:36px;border:1.5px solid #ddd;overflow:hidden;position:relative;display:flex;flex-direction:column;min-height:780px;}
+.statusbar{background:#fff;padding:10px 18px 6px;display:flex;justify-content:space-between;font-size:11px;color:#333;font-weight:500;flex-shrink:0;}
+.header{background:#fff;border-bottom:0.5px solid #eee;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.header-title{font-size:17px;font-weight:600;color:#222;}
+.icon-btn{width:30px;height:30px;border-radius:9px;background:#F0FAF7;border:0.5px solid #c8ede3;display:flex;align-items:center;justify-content:center;color:#22C9A0;font-size:15px;cursor:pointer;}
+
+/* 홈 화면 */
+.home-screen{display:flex;flex-direction:column;flex:1;}
+.scope-section{background:#fff;padding:14px;}
+.section-label{font-size:12px;font-weight:500;color:#888;display:flex;align-items:center;gap:4px;margin-bottom:10px;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.folder-item{background:#F7FAF9;border-radius:12px;border:0.5px solid #e8f4f0;padding:10px 6px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;transition:all 0.15s;position:relative;}
+.folder-item.selected{border-color:#22C9A0;background:#E6F7F3;}
+.folder-icon{width:46px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;}
+.folder-name{font-size:10px;font-weight:500;color:#222;text-align:center;line-height:1.3;word-break:keep-all;}
+.folder-meta{font-size:9px;color:#aaa;text-align:center;}
+.folder-cnt{font-size:9px;color:#22C9A0;font-weight:500;}
+.check-badge{position:absolute;top:-4px;right:-4px;width:16px;height:16px;border-radius:50%;background:#22C9A0;display:flex;align-items:center;justify-content:center;z-index:1;}
+.bottom-section{background:#F7FAF9;padding:14px;display:flex;flex-direction:column;gap:10px;flex:1;}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.stat-card{background:#fff;border-radius:12px;border:0.5px solid #e8f4f0;padding:12px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.stat-num{font-size:20px;font-weight:600;}
+.stat-label{font-size:10px;color:#aaa;text-align:center;}
+.stat-sub{font-size:9px;color:#bbb;text-align:center;}
+.start-btn{background:#22C9A0;border:none;border-radius:12px;padding:14px;color:#fff;font-size:14px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+
+/* 퀴즈 진행 화면 */
+.quiz-screen{display:none;flex-direction:column;flex:1;}
+.quiz-screen.active{display:flex;}
+.progress-wrap{padding:10px 14px 4px;flex-shrink:0;}
+.progress-bar-bg{height:4px;background:#eee;border-radius:4px;overflow:hidden;}
+.progress-bar-fill{height:100%;background:#22C9A0;border-radius:4px;transition:width 0.3s;}
+.progress-label{font-size:11px;color:#aaa;text-align:right;margin-top:4px;}
+.card-wrap{flex:1;padding:0 14px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;}
+.source-tag{display:inline-flex;align-items:center;gap:4px;background:#E6F7F3;border-radius:8px;padding:3px 8px;font-size:11px;color:#0F6E56;font-weight:500;align-self:flex-start;}
+.question-card{background:#fff;border-radius:14px;border:0.5px solid #e8f4f0;padding:16px 14px;}
+.node-label{font-size:11px;font-weight:500;color:#22C9A0;margin-bottom:6px;display:flex;align-items:center;gap:4px;}
+.question-text{font-size:14px;color:#222;line-height:1.6;font-weight:500;}
+.options{display:flex;flex-direction:column;gap:7px;}
+.opt{padding:11px 14px;border-radius:11px;border:0.5px solid #ddd;font-size:13px;color:#333;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:8px;}
+.opt:hover{border-color:#22C9A0;background:#F0FAF7;}
+.opt.correct{border-color:#22C9A0;background:#E6F7F3;color:#0F6E56;font-weight:500;}
+.opt.wrong{border-color:#E24B4A;background:#FCEBEB;color:#A32D2D;}
+.opt-label{width:22px;height:22px;border-radius:7px;background:#F7FAF9;border:0.5px solid #ddd;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0;}
+.result-box{padding:10px 12px;border-radius:10px;font-size:12px;display:none;align-items:center;gap:6px;}
+.result-box.correct{background:#E6F7F3;color:#0F6E56;display:flex;}
+.result-box.wrong{background:#FCEBEB;color:#A32D2D;display:flex;}
+.nav-row{display:flex;gap:8px;padding:10px 14px 14px;flex-shrink:0;}
+.nav-btn{flex:1;padding:12px;border-radius:11px;border:0.5px solid #ddd;background:#fff;font-size:13px;color:#555;cursor:pointer;font-weight:500;}
+.nav-btn.primary{background:#22C9A0;border-color:#22C9A0;color:#fff;}
+.nav-btn:disabled{opacity:0.4;cursor:not-allowed;}
+
+/* 결과 화면 */
+.result-screen{display:none;flex-direction:column;flex:1;padding:14px;gap:12px;overflow-y:auto;}
+.result-screen.active{display:flex;}
+.result-hero{background:#fff;border-radius:16px;border:0.5px solid #e8f4f0;padding:24px 14px;display:flex;flex-direction:column;align-items:center;gap:8px;}
+.result-score{font-size:48px;font-weight:600;color:#22C9A0;}
+.result-sub{font-size:13px;color:#888;}
+.result-detail{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.result-stat{background:#fff;border-radius:10px;border:0.5px solid #e8f4f0;padding:10px 8px;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.result-stat-num{font-size:16px;font-weight:600;}
+.result-stat-label{font-size:10px;color:#aaa;}
+.graph-notice{background:#E6F7F3;border-radius:12px;border:0.5px solid #22C9A0;padding:12px 14px;display:flex;align-items:center;gap:10px;}
+.graph-notice-icon{width:38px;height:38px;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.result-btns{display:flex;flex-direction:column;gap:7px;}
+.result-btn{padding:13px;border-radius:11px;border:none;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+.result-btn.primary{background:#22C9A0;color:#fff;}
+.result-btn.secondary{background:#fff;border:0.5px solid #ddd;color:#555;}
+
+/* 탭바 */
+.tabbar{background:#fff;border-top:0.5px solid #eee;padding:8px 0 18px;display:flex;align-items:center;justify-content:space-around;flex-shrink:0;}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;}
+.tab-label{font-size:9px;color:#aaa;}
+.rec-btn{width:46px;height:46px;border-radius:23px;background:#22C9A0;display:flex;align-items:center;justify-content:center;margin-top:-14px;}
+
+/* 더보기 시트 */
+.overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:none;z-index:10;border-radius:36px;}
+.overlay.show{display:block;}
+.more-sheet{position:absolute;bottom:0;left:0;right:0;background:#fff;border-radius:22px 22px 0 0;padding:16px 16px 32px;z-index:11;transform:translateY(100%);transition:transform 0.25s ease;}
+.more-sheet.show{transform:translateY(0);}
+.sheet-handle{width:36px;height:3px;border-radius:2px;background:#e0e0e0;margin:0 auto 14px;}
+.more-item{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:0.5px solid #f5f5f5;cursor:pointer;}
+.more-item:last-child{border-bottom:none;}
+.more-icon{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.more-name{font-size:13px;font-weight:500;color:#222;}
+.more-desc{font-size:11px;color:#aaa;margin-top:1px;}
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="statusbar"><span>9:41</span><span>●●●</span></div>
+
+  <!-- 홈 화면 -->
+  <div class="home-screen" id="home-screen">
+    <div class="header">
+      <div class="header-title">퀴즈</div>
+      <div class="icon-btn"><i class="ti ti-dots"></i></div>
+    </div>
+    <div class="scope-section">
+      <div class="section-label">
+        <i class="ti ti-books" style="font-size:13px;color:#22C9A0;"></i>
+        출제 범위 선택
+      </div>
+      <div class="grid">
+        <div class="folder-item selected" onclick="toggleScope(this)">
+          <div class="check-badge"><i class="ti ti-check" style="font-size:9px;color:#fff;"></i></div>
+          <div class="folder-icon" style="background:#E6F7F3;"><i class="ti ti-folder" style="color:#22C9A0;font-size:24px;"></i></div>
+          <div class="folder-name">3월 회의</div>
+          <div class="folder-cnt">노드 4개</div>
+        </div>
+        <div class="folder-item selected" onclick="toggleScope(this)">
+          <div class="check-badge"><i class="ti ti-check" style="font-size:9px;color:#fff;"></i></div>
+          <div class="folder-icon" style="background:#EEEDFE;"><i class="ti ti-folder" style="color:#7F77DD;font-size:24px;"></i></div>
+          <div class="folder-name">알고리즘 강의</div>
+          <div class="folder-cnt">노드 6개</div>
+        </div>
+        <div class="folder-item" onclick="toggleScope(this)">
+          <div class="folder-icon" style="background:#FAECE7;"><i class="ti ti-folder" style="color:#D85A30;font-size:24px;"></i></div>
+          <div class="folder-name">마케팅 기획</div>
+          <div class="folder-cnt">노드 2개</div>
+        </div>
+        <div class="folder-item" onclick="toggleScope(this)">
+          <div class="folder-icon" style="background:#E6F7F3;"><i class="ti ti-microphone" style="color:#22C9A0;font-size:22px;"></i></div>
+          <div class="folder-name">마케팅 회의록</div>
+          <div class="folder-meta">녹음 · 42분</div>
+        </div>
+        <div class="folder-item" onclick="toggleScope(this)">
+          <div class="folder-icon" style="background:#EEEDFE;"><i class="ti ti-file-text" style="color:#7F77DD;font-size:22px;"></i></div>
+          <div class="folder-name">알고리즘 요약본</div>
+          <div class="folder-meta">PDF · 41MB</div>
+        </div>
+        <div class="folder-item" style="border:1.5px dashed #c8ede3;background:#F7FAF9;justify-content:center;min-height:80px;">
+          <i class="ti ti-plus" style="font-size:20px;color:#22C9A0;"></i>
+          <div class="folder-name" style="color:#22C9A0;">더 보기</div>
+        </div>
+      </div>
+    </div>
+    <div class="bottom-section">
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="stat-num" style="color:#22C9A0;">78%</div>
+          <div class="stat-label">전체 정답률</div>
+          <div class="stat-sub">지난주 +5%</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" style="color:#222;">12<span style="font-size:13px;color:#aaa;">/20</span></div>
+          <div class="stat-label">완료 노드</div>
+          <div class="stat-sub">전체 개념</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" style="color:#E24B4A;">5</div>
+          <div class="stat-label">복습 필요</div>
+          <div class="stat-sub">오늘 예정</div>
+        </div>
+      </div>
+      <button class="start-btn" onclick="startQuiz()">
+        <i class="ti ti-player-play"></i>퀴즈 시작
+      </button>
+    </div>
+  </div>
+
+  <!-- 퀴즈 진행 화면 -->
+  <div class="quiz-screen" id="quiz-screen">
+    <div class="header">
+      <i class="ti ti-x" style="font-size:20px;color:#aaa;cursor:pointer;" onclick="exitQuiz()"></i>
+      <div style="font-size:13px;font-weight:500;color:#222;" id="quiz-header-title">퀴즈</div>
+      <div style="width:30px;"></div>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-fill" style="width:0%"></div></div>
+      <div class="progress-label" id="progress-label">1 / 9</div>
+    </div>
+    <div class="card-wrap" id="card-wrap">
+      <div class="source-tag" id="q-source"></div>
+      <div class="question-card">
+        <div class="node-label" id="q-node"></div>
+        <div class="question-text" id="q-text"></div>
+      </div>
+      <div class="options" id="q-options"></div>
+      <div class="result-box" id="q-result"></div>
+    </div>
+    <div class="nav-row">
+      <button class="nav-btn" onclick="skipQ()">건너뛰기</button>
+      <button class="nav-btn primary" id="next-btn" onclick="nextQ()" disabled>다음</button>
+    </div>
+  </div>
+
+  <!-- 결과 화면 -->
+  <div class="result-screen" id="result-screen">
+    <div style="font-size:15px;font-weight:600;color:#222;">퀴즈 완료!</div>
+    <div class="result-hero">
+      <div class="result-score" id="result-score">7/9</div>
+      <div class="result-sub" id="result-sub">정답률 78%</div>
+    </div>
+    <div class="result-detail">
+      <div class="result-stat"><div class="result-stat-num" style="color:#22C9A0;" id="r-correct">7</div><div class="result-stat-label">맞춤</div></div>
+      <div class="result-stat"><div class="result-stat-num" style="color:#E24B4A;" id="r-wrong">2</div><div class="result-stat-label">틀림</div></div>
+      <div class="result-stat"><div class="result-stat-num" style="color:#B4B2A9;" id="r-skip">0</div><div class="result-stat-label">건너뜀</div></div>
+    </div>
+    <div class="graph-notice">
+      <div class="graph-notice-icon"><i class="ti ti-hierarchy-2" style="font-size:20px;color:#22C9A0;"></i></div>
+      <div style="flex:1;">
+        <div style="font-size:12px;font-weight:500;color:#0F6E56;">그래프에 반영됐어요</div>
+        <div style="font-size:11px;color:#1D9E75;margin-top:2px;" id="graph-notice-sub"></div>
+      </div>
+      <i class="ti ti-chevron-right" style="font-size:16px;color:#22C9A0;"></i>
+    </div>
+    <div class="result-btns">
+      <button class="result-btn primary" onclick="retryWrong()"><i class="ti ti-refresh"></i>틀린 문제만 다시 풀기</button>
+      <button class="result-btn secondary" onclick="exitQuiz()"><i class="ti ti-home"></i>퀴즈 홈으로</button>
+    </div>
+  </div>
+
+  <div class="tabbar">
+    <div class="tab"><i class="ti ti-home" style="font-size:20px;color:#aaa;"></i><span class="tab-label">홈</span></div>
+    <div class="tab"><i class="ti ti-folder" style="font-size:20px;color:#aaa;"></i><span class="tab-label">내 작업</span></div>
+    <div class="rec-btn"><i class="ti ti-plus" style="font-size:22px;color:#fff;"></i></div>
+    <div class="tab"><i class="ti ti-hierarchy-2" style="font-size:20px;color:#aaa;"></i><span class="tab-label">그래프</span></div>
+    <div class="tab" onclick="openMore()"><i class="ti ti-dots" style="font-size:20px;color:#22C9A0;"></i><span class="tab-label" style="color:#22C9A0;">더보기</span></div>
+  </div>
+
+  <div class="overlay" id="overlay" onclick="closeMore()"></div>
+  <div class="more-sheet" id="more-sheet">
+    <div class="sheet-handle"></div>
+    <div class="more-item">
+      <div class="more-icon" style="background:#E6F7F3;"><i class="ti ti-brain" style="font-size:20px;color:#22C9A0;"></i></div>
+      <div style="flex:1;"><div class="more-name">퀴즈</div><div class="more-desc">노드 기반 학습 퀴즈</div></div>
+      <i class="ti ti-chevron-right" style="font-size:16px;color:#aaa;"></i>
+    </div>
+    <div class="more-item">
+      <div class="more-icon" style="background:#EEEDFE;"><i class="ti ti-settings" style="font-size:20px;color:#7F77DD;"></i></div>
+      <div style="flex:1;"><div class="more-name">설정</div><div class="more-desc">알림, 계정, 앱 설정</div></div>
+      <i class="ti ti-chevron-right" style="font-size:16px;color:#aaa;"></i>
+    </div>
+    <div class="more-item">
+      <div class="more-icon" style="background:#FAECE7;"><i class="ti ti-help" style="font-size:20px;color:#D85A30;"></i></div>
+      <div style="flex:1;"><div class="more-name">도움말</div><div class="more-desc">사용 가이드</div></div>
+      <i class="ti ti-chevron-right" style="font-size:16px;color:#aaa;"></i>
+    </div>
+  </div>
+</div>
+
+<script>
+const quizData=[
+  {node:'미토콘드리아',source:'알고리즘 강의',sourceType:'audio',q:'미토콘드리아의 주요 기능은?',opts:['ATP 생성','단백질 합성','DNA 복제','세포벽 형성'],answer:0},
+  {node:'ATP',source:'알고리즘 강의',sourceType:'audio',q:'ATP의 풀네임은?',opts:['아데노신 삼인산','아데닌 삼인산','아데노신 이인산','아데닌 이인산'],answer:0},
+  {node:'세포 호흡',source:'알고리즘 강의',sourceType:'audio',q:'세포 호흡이 일어나는 장소는?',opts:['핵','리보솜','미토콘드리아','세포막'],answer:2},
+  {node:'NADH',source:'알고리즘 강의',sourceType:'audio',q:'NADH의 역할은?',opts:['에너지 저장','전자 운반','단백질 합성','DNA 복제'],answer:1},
+  {node:'에너지',source:'3월 회의',sourceType:'audio',q:'에너지 대사의 핵심 분자는?',opts:['DNA','ATP','RNA','단백질'],answer:1},
+  {node:'DNA',source:'3월 회의',sourceType:'audio',q:'DNA의 구성 단위는?',opts:['아미노산','뉴클레오타이드','포도당','지방산'],answer:1},
+  {node:'포도당',source:'3월 회의',sourceType:'audio',q:'포도당의 화학식은?',opts:['C6H12O6','C12H22O11','C6H6O6','C6H12O3'],answer:0},
+  {node:'효소',source:'3월 회의',sourceType:'audio',q:'효소의 주성분은?',opts:['탄수화물','지질','단백질','핵산'],answer:2},
+  {node:'산화',source:'알고리즘 강의',sourceType:'audio',q:'산화란 무엇인가?',opts:['전자를 잃는 과정','전자를 얻는 과정','수소를 얻는 과정','산소를 잃는 과정'],answer:0},
+];
+let curIdx=0,correct=0,wrong=0,skip=0,answered=false;
+
+function toggleScope(el){
+  if(el.querySelector('i.ti-plus')) return;
+  el.classList.toggle('selected');
+  let chk=el.querySelector('.check-badge');
+  if(el.classList.contains('selected')){
+    if(!chk){chk=document.createElement('div');chk.className='check-badge';chk.innerHTML='<i class="ti ti-check" style="font-size:9px;color:#fff;"></i>';el.appendChild(chk);}
+    else chk.style.display='flex';
+  } else { if(chk) chk.style.display='none'; }
+}
+
+function startQuiz(){
+  curIdx=0;correct=0;wrong=0;skip=0;answered=false;
+  document.getElementById('home-screen').style.display='none';
+  document.getElementById('quiz-screen').classList.add('active');
+  renderQ();
+}
+
+function renderQ(){
+  if(curIdx>=quizData.length){showResult();return;}
+  const q=quizData[curIdx];
+  answered=false;
+  const nb=document.getElementById('next-btn');
+  nb.disabled=true;nb.textContent='다음';
+  document.getElementById('q-result').className='result-box';
+  document.getElementById('q-result').style.display='none';
+  const pct=Math.round((curIdx/quizData.length)*100);
+  document.getElementById('progress-fill').style.width=pct+'%';
+  document.getElementById('progress-label').textContent=`${curIdx+1} / ${quizData.length}`;
+  document.getElementById('quiz-header-title').textContent=`${curIdx+1} / ${quizData.length}`;
+  const srcIcon=q.sourceType==='audio'?'ti-microphone':'ti-file-text';
+  document.getElementById('q-source').innerHTML=`<i class="ti ${srcIcon}" style="font-size:11px;"></i>${q.source}`;
+  document.getElementById('q-node').innerHTML=`<i class="ti ti-circle-dot" style="font-size:12px;color:#22C9A0;"></i>${q.node}`;
+  document.getElementById('q-text').textContent=q.q;
+  const labels=['①','②','③','④'];
+  document.getElementById('q-options').innerHTML=q.opts.map((o,i)=>
+    `<div class="opt" onclick="answer(${i})"><div class="opt-label">${labels[i]}</div>${o}</div>`
+  ).join('');
+}
+
+function answer(idx){
+  if(answered) return;
+  answered=true;
+  const q=quizData[curIdx];
+  const isCorrect=idx===q.answer;
+  if(isCorrect) correct++; else wrong++;
+  const opts=document.querySelectorAll('.opt');
+  opts[idx].classList.add(isCorrect?'correct':'wrong');
+  if(!isCorrect) opts[q.answer].classList.add('correct');
+  const res=document.getElementById('q-result');
+  res.style.display='flex';
+  res.className=`result-box ${isCorrect?'correct':'wrong'}`;
+  res.innerHTML=isCorrect
+    ?'<i class="ti ti-circle-check"></i> 정답이에요!'
+    :`<i class="ti ti-circle-x"></i> 오답! 정답은 "${q.opts[q.answer]}"`;
+  const nb=document.getElementById('next-btn');
+  nb.disabled=false;
+  if(curIdx===quizData.length-1) nb.textContent='결과 보기';
+}
+
+function nextQ(){curIdx++;renderQ();}
+function skipQ(){skip++;curIdx++;renderQ();}
+
+function showResult(){
+  document.getElementById('quiz-screen').classList.remove('active');
+  const total=quizData.length;
+  const pct=Math.round((correct/total)*100);
+  document.getElementById('result-score').textContent=`${correct}/${total}`;
+  document.getElementById('result-sub').textContent=`정답률 ${pct}%`;
+  document.getElementById('r-correct').textContent=correct;
+  document.getElementById('r-wrong').textContent=wrong;
+  document.getElementById('r-skip').textContent=skip;
+  document.getElementById('graph-notice-sub').textContent=`맞춤 ${correct}개 노드가 초록색으로 업데이트됐습니다`;
+  document.getElementById('result-screen').classList.add('active');
+}
+
+function exitQuiz(){
+  document.getElementById('quiz-screen').classList.remove('active');
+  document.getElementById('result-screen').classList.remove('active');
+  document.getElementById('home-screen').style.display='flex';
+}
+
+function retryWrong(){
+  curIdx=0;correct=0;wrong=0;skip=0;
+  document.getElementById('result-screen').classList.remove('active');
+  document.getElementById('quiz-screen').classList.add('active');
+  renderQ();
+}
+
+function openMore(){
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('more-sheet').classList.add('show');
+}
+function closeMore(){
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('more-sheet').classList.remove('show');
+}
+</script>
+</body>
+</html>

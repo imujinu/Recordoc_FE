@@ -1,5 +1,6 @@
-import { useRef, useState, type RefObject } from 'react';
+import { useCallback, useMemo, useRef, useState, type RefObject } from 'react';
 import {
+  ActivityIndicator,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -9,54 +10,203 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { Colors } from '@/styles/theme';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { inferFileKind, listFolderItems, type FileKind, type FileWorkItem } from '@/api/files';
 import { AppBottomBar } from '@/components/AppBottomBar';
 import { useNewItemSheet } from '@/components/NewItemSheet';
+import { Colors } from '@/styles/theme';
 
-type FolderFile = {
-  id: number;
-  title: string;
-  type: 'audio' | 'pdf';
-  meta: string;
-  status?: 'converting' | 'done';
-  progress?: number;
-};
+type ChatMessage = { role: 'user'; text: string };
 
-type ChatMessage = { role: 'user' | 'ai'; text: string };
+function getParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+}
 
-const FILES: FolderFile[] = [
-  { id: 1, title: '마케팅 회의', type: 'audio', meta: '42분', status: 'done' },
-  { id: 2, title: '팀 미팅', type: 'audio', meta: '변환중 67%', status: 'converting', progress: 67 },
-  { id: 3, title: '회의 자료.pdf', type: 'pdf', meta: 'PDF', status: 'done' },
-  { id: 4, title: '주간 리뷰', type: 'audio', meta: '38분', status: 'done' },
-];
+function getDisplayTitle(file: FileWorkItem): string {
+  return file.title?.trim() || file.original_filename?.trim() || '제목 없는 파일';
+}
 
-const INIT_CHATS: ChatMessage[] = [
-  { role: 'user', text: '이 폴더에서 결정된 사항은 뭐야?' },
-  { role: 'ai', text: '예산 15% 증액, 인스타그램 릴스 채널 우선 적용, 다음 회의 전 KPI 초안 공유가 주요 결정입니다.' },
-];
+function getKindMeta(kind: FileKind): {
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bg: string;
+  label: string;
+} {
+  if (kind === 'audio') {
+    return { icon: 'mic-outline', color: Colors.mint, bg: Colors.mintLight, label: '음성' };
+  }
+  if (kind === 'pdf') {
+    return { icon: 'document-text-outline', color: '#D85A30', bg: '#FAECE7', label: 'PDF' };
+  }
+  if (kind === 'ppt') {
+    return { icon: 'easel-outline', color: '#7F77DD', bg: '#EEEDFE', label: 'PPT' };
+  }
+  return { icon: 'document-outline', color: '#888780', bg: '#F1EFE8', label: '문서' };
+}
+
+function getStatusLabel(status?: string | null): string {
+  if (status === 'processing') return '처리 중';
+  if (status === 'failed') return '실패';
+  return '완료';
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : '폴더 파일 목록을 불러오지 못했습니다.';
+}
 
 export default function FolderScreen() {
-  const { openSheet } = useNewItemSheet();
-  const [chats, setChats] = useState(INIT_CHATS);
+  const params = useLocalSearchParams<{ folderId?: string; folderName?: string }>();
+  const folderId = getParam(params.folderId);
+  const folderName = getParam(params.folderName) || '폴더';
+  const { openSheet, workItemsRevision } = useNewItemSheet();
+  const [files, setFiles] = useState<FileWorkItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [chats, setChats] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
+  const loadFiles = useCallback(async () => {
+    if (!folderId) {
+      setLoading(false);
+      setError('폴더 정보를 찾을 수 없습니다.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const nextFiles = await listFolderItems(folderId);
+      setFiles(nextFiles);
+    } catch (loadError) {
+      setError(getErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }, [folderId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadFiles();
+    }, [loadFiles])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (workItemsRevision > 0) {
+        void loadFiles();
+      }
+    }, [loadFiles, workItemsRevision])
+  );
+
+  const filteredFiles = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return files;
+    return files.filter((file) => {
+      const title = getDisplayTitle(file).toLowerCase();
+      const original = file.original_filename?.toLowerCase() ?? '';
+      return title.includes(normalized) || original.includes(normalized);
+    });
+  }, [files, query]);
+
   const handleSend = () => {
-    if (!inputText.trim()) return;
-    setChats((prev) => [
-      ...prev,
-      { role: 'user', text: inputText },
-      { role: 'ai', text: '이 폴더의 파일들을 기준으로 답변을 정리하고 있습니다.' },
-    ]);
+    const text = inputText.trim();
+    if (!text) return;
+    setChats((prev) => [...prev, { role: 'user', text }]);
     setInputText('');
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
-  const openFile = (file: FolderFile) => {
-    if (file.status === 'converting') return;
-    router.push(file.type === 'pdf' ? '/pdf' : '/detail');
+  const openFile = (file: FileWorkItem) => {
+    if (file.status === 'processing') return;
+    const kind = inferFileKind(file);
+    const target = kind === 'audio' ? '/detail' : '/pdf';
+    router.push(`${target}?transcriptId=${encodeURIComponent(file.transcript_id)}` as never);
+  };
+
+  const renderFiles = () => {
+    if (loading) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="small" color={Colors.mint} />
+          <Text style={styles.emptyTitle}>폴더 파일을 불러오는 중입니다</Text>
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="alert-circle-outline" size={30} color="#D85A30" />
+          <Text style={styles.emptyTitle}>파일을 불러오지 못했습니다</Text>
+          <Text style={styles.emptyDescription}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadFiles}>
+            <Text style={styles.retryText}>다시 시도</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (files.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="folder-open-outline" size={30} color={Colors.textLight} />
+          <Text style={styles.emptyTitle}>폴더가 비어 있습니다</Text>
+        </View>
+      );
+    }
+
+    if (filteredFiles.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="search-outline" size={30} color={Colors.textLight} />
+          <Text style={styles.emptyTitle}>검색 결과가 없습니다</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.grid}>
+        {filteredFiles.map((file) => {
+          const kind = inferFileKind(file);
+          const meta = getKindMeta(kind);
+          const isProcessing = file.status === 'processing';
+          const isFailed = file.status === 'failed';
+
+          return (
+            <TouchableOpacity
+              key={file.transcript_id}
+              style={[styles.card, isProcessing && styles.processingCard, isFailed && styles.failedCard]}
+              activeOpacity={0.8}
+              onPress={() => openFile(file)}
+            >
+              <View style={[styles.itemIcon, { backgroundColor: meta.bg }]}>
+                <Ionicons name={meta.icon} size={23} color={meta.color} />
+              </View>
+              <Text style={styles.itemName} numberOfLines={2}>
+                {getDisplayTitle(file)}
+              </Text>
+              <Text
+                style={[
+                  styles.itemMeta,
+                  isProcessing && styles.processingText,
+                  isFailed && styles.failedText,
+                ]}
+                numberOfLines={1}
+              >
+                {`${meta.label} · ${getStatusLabel(file.status)}`}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+        <TouchableOpacity style={styles.newCard} activeOpacity={0.8} onPress={openSheet}>
+          <Ionicons name="add" size={22} color={Colors.mint} />
+          <Text style={[styles.itemName, styles.newText]}>새 파일</Text>
+        </TouchableOpacity>
+      </View>
+    );
   };
 
   return (
@@ -66,9 +216,9 @@ export default function FolderScreen() {
           <Ionicons name="arrow-back" size={20} color={Colors.mint} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
-          3월 회의
+          {folderName}
         </Text>
-        <Text style={styles.headerMeta}>파일 {FILES.length}개</Text>
+        <Text style={styles.headerMeta}>파일 {files.length}개</Text>
         <TouchableOpacity style={styles.iconButton}>
           <Ionicons name="ellipsis-horizontal" size={18} color={Colors.mint} />
         </TouchableOpacity>
@@ -76,53 +226,23 @@ export default function FolderScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={15} color="#bbb" />
-          <Text style={styles.searchText}>파일 검색...</Text>
+          <Ionicons name="search-outline" size={15} color="#bbb" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="파일 검색..."
+            placeholderTextColor="#bbb"
+            value={query}
+            onChangeText={setQuery}
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={() => setQuery('')}>
+              <Ionicons name="close-circle" size={15} color={Colors.textLight} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <Text style={styles.sectionLabel}>파일</Text>
-        <View style={styles.grid}>
-          {FILES.map((file) => (
-            <TouchableOpacity
-              key={file.id}
-              style={[styles.card, file.status === 'converting' && styles.convertingCard]}
-              activeOpacity={0.8}
-              onPress={() => openFile(file)}
-            >
-              <View
-                style={[
-                  styles.itemIcon,
-                  file.status === 'converting'
-                    ? styles.convertingIcon
-                    : file.type === 'pdf'
-                      ? styles.pdfIcon
-                      : styles.audioIcon,
-                ]}
-              >
-                <Ionicons
-                  name={file.type === 'pdf' ? 'document-text-outline' : 'mic-outline'}
-                  size={23}
-                  color={file.status === 'converting' ? '#D85A30' : file.type === 'pdf' ? '#7F77DD' : Colors.mint}
-                />
-                {file.status === 'converting' && (
-                  <View style={styles.progressRing}>
-                    <Text style={styles.progressRingText}>{file.progress}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.itemName} numberOfLines={2}>
-                {file.title}
-              </Text>
-              <Text style={[styles.itemMeta, file.status === 'converting' && styles.convertingText]}>
-                {file.meta}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity style={styles.newCard} activeOpacity={0.8} onPress={openSheet}>
-            <Ionicons name="add" size={22} color={Colors.mint} />
-            <Text style={[styles.itemName, styles.newText]}>새 파일</Text>
-          </TouchableOpacity>
-        </View>
+        {renderFiles()}
       </ScrollView>
 
       <FolderRagPanel
@@ -155,19 +275,19 @@ function FolderRagPanel({
       <View style={styles.panelHandle} />
       <View style={styles.panelTitleRow}>
         <Ionicons name="chatbubble-ellipses-outline" size={14} color={Colors.mint} />
-        <Text style={styles.panelTitle}>이 폴더로 질문하기</Text>
+        <Text style={styles.panelTitle}>폴더로 질문하기</Text>
       </View>
       <ScrollView ref={scrollRef} style={styles.chatScroll} contentContainerStyle={styles.chatList}>
         {chats.map((message, index) => (
-          <View key={`${message.role}-${index}`} style={message.role === 'user' ? styles.chatMine : styles.chatAi}>
-            <Text style={message.role === 'user' ? styles.chatMineText : styles.chatAiText}>{message.text}</Text>
+          <View key={`${message.role}-${index}`} style={styles.chatMine}>
+            <Text style={styles.chatMineText}>{message.text}</Text>
           </View>
         ))}
       </ScrollView>
       <View style={styles.inputRow}>
         <TextInput
           style={styles.input}
-          placeholder="이 폴더 내용으로 질문하세요..."
+          placeholder="폴더 내용으로 질문하세요..."
           placeholderTextColor="#bbb"
           value={inputText}
           onChangeText={setInputText}
@@ -233,9 +353,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
-  searchText: {
+  searchInput: {
+    flex: 1,
     fontSize: 12,
-    color: '#bbb',
+    color: Colors.textDark,
+    paddingVertical: 0,
   },
   sectionLabel: {
     fontSize: 11,
@@ -264,9 +386,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
-  convertingCard: {
-    backgroundColor: '#FFFAF5',
-    borderColor: '#f0e0c8',
+  processingCard: {
+    backgroundColor: '#FAF9FF',
+    borderColor: '#DDD9FF',
+  },
+  failedCard: {
+    backgroundColor: '#FFF7F7',
+    borderColor: '#FFD6D6',
   },
   newCard: {
     width: '31.8%',
@@ -288,15 +414,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  audioIcon: {
-    backgroundColor: Colors.mintLight,
-  },
-  pdfIcon: {
-    backgroundColor: '#EEEDFE',
-  },
-  convertingIcon: {
-    backgroundColor: '#FFF3E8',
-  },
   itemName: {
     fontSize: 10,
     fontWeight: '500',
@@ -312,27 +429,49 @@ const styles = StyleSheet.create({
   newText: {
     color: Colors.mint,
   },
-  progressRing: {
-    position: 'absolute',
-    right: -6,
-    bottom: -7,
-    width: 24,
-    height: 24,
+  processingText: {
+    color: '#7F77DD',
+    fontWeight: '500',
+  },
+  failedText: {
+    color: '#E53935',
+    fontWeight: '500',
+  },
+  emptyState: {
+    marginHorizontal: 12,
+    marginBottom: 12,
     borderRadius: 12,
-    borderWidth: 3,
-    borderColor: '#D85A30',
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
     backgroundColor: Colors.white,
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
   },
-  progressRingText: {
-    fontSize: 7,
-    fontWeight: '700',
-    color: '#D85A30',
+  emptyTitle: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textDark,
+    textAlign: 'center',
   },
-  convertingText: {
-    color: '#D85A30',
-    fontWeight: '500',
+  emptyDescription: {
+    marginTop: 4,
+    fontSize: 11,
+    color: Colors.textLight,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.mintLight,
+  },
+  retryText: {
+    fontSize: 12,
+    color: Colors.mint,
+    fontWeight: '600',
   },
   chatPanel: {
     backgroundColor: Colors.white,
@@ -367,14 +506,6 @@ const styles = StyleSheet.create({
   chatList: {
     gap: 5,
   },
-  chatAi: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.bg,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    maxWidth: '88%',
-  },
   chatMine: {
     alignSelf: 'flex-end',
     backgroundColor: Colors.mintLight,
@@ -382,11 +513,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 7,
     maxWidth: '88%',
-  },
-  chatAiText: {
-    fontSize: 11,
-    color: '#444',
-    lineHeight: 16,
   },
   chatMineText: {
     fontSize: 11,

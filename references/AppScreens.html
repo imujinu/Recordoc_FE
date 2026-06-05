@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>와브 앱 화면</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
+body{background:#f0f0f0;display:flex;justify-content:center;padding:40px 20px;}
+.phone{width:360px;background:#F7FAF9;border-radius:36px;border:1.5px solid #ddd;overflow:hidden;position:relative;min-height:700px;}
+.statusbar{background:#fff;padding:10px 18px 6px;display:flex;justify-content:space-between;font-size:11px;color:#333;font-weight:500;}
+.header{background:#fff;border-bottom:0.5px solid #eee;padding:10px 14px;display:flex;align-items:center;gap:8px;}
+.header-title{font-size:14px;font-weight:600;color:#222;flex:1;}
+.header-meta{font-size:11px;color:#aaa;}
+.icon-btn{width:30px;height:30px;border-radius:9px;background:#F0FAF7;border:0.5px solid #c8ede3;display:flex;align-items:center;justify-content:center;color:#22C9A0;font-size:15px;cursor:pointer;flex-shrink:0;}
+.search-bar{margin:10px 12px 6px;background:#fff;border:0.5px solid #e0f0eb;border-radius:11px;padding:7px 10px;display:flex;align-items:center;gap:7px;}
+.search-bar span{font-size:12px;color:#bbb;}
+.section-label{font-size:11px;font-weight:500;color:#888;padding:6px 12px 4px;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 12px;}
+.folder-item{background:#fff;border-radius:12px;border:0.5px solid #e8f4f0;padding:10px 6px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;transition:transform 0.1s;}
+.folder-item:active{transform:scale(0.96);}
+.folder-item.converting{border-color:#f0e0c8;background:#fffaf5;}
+.folder-icon{width:46px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;position:relative;}
+.folder-name{font-size:10px;font-weight:500;color:#222;text-align:center;line-height:1.3;word-break:keep-all;}
+.folder-meta{font-size:9px;color:#aaa;text-align:center;}
+.badge{position:absolute;top:-3px;right:-3px;background:#FF5A5A;border-radius:5px;padding:1px 4px;font-size:8px;color:#fff;font-weight:600;}
+.prog-ring{position:absolute;bottom:-3px;right:-3px;width:16px;height:16px;}
+.new-item{background:#F7FAF9;border-radius:12px;border:1.5px dashed #c8ede3;padding:10px 6px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;justify-content:center;min-height:80px;}
+.tabbar{background:#fff;border-top:0.5px solid #eee;padding:8px 0 18px;display:flex;align-items:center;justify-content:space-around;}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;}
+.tab-label{font-size:9px;color:#aaa;}
+.tab-label.active{color:#22C9A0;}
+.rec-btn{width:46px;height:46px;border-radius:23px;background:#22C9A0;display:flex;align-items:center;justify-content:center;margin-top:-14px;cursor:pointer;}
+.overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:none;z-index:10;border-radius:36px;}
+.overlay.show{display:block;}
+.sheet{position:absolute;bottom:0;left:0;right:0;background:#fff;border-radius:22px 22px 0 0;padding:16px 16px 30px;z-index:11;transform:translateY(100%);transition:transform 0.25s ease;}
+.sheet.show{transform:translateY(0);}
+.sheet-handle{width:36px;height:3px;border-radius:2px;background:#e0e0e0;margin:0 auto 14px;}
+.sheet-title{font-size:14px;font-weight:600;color:#222;margin-bottom:14px;text-align:center;}
+.sheet-options{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;}
+.sheet-opt{background:#F7FAF9;border-radius:12px;border:0.5px solid #e0f0eb;padding:12px 6px 10px;display:flex;flex-direction:column;align-items:center;gap:7px;cursor:pointer;}
+.sheet-opt-icon{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;}
+.sheet-opt-label{font-size:10px;font-weight:500;color:#222;text-align:center;}
+.sheet-opt-sub{font-size:9px;color:#aaa;text-align:center;}
+.sheet-cancel{width:100%;padding:12px;border-radius:11px;background:#f5f5f5;border:none;font-size:13px;color:#555;font-weight:500;cursor:pointer;}
+.toast{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:#222;color:#fff;font-size:11px;padding:7px 14px;border-radius:18px;white-space:nowrap;opacity:0;transition:opacity 0.2s;z-index:20;pointer-events:none;}
+.toast.show{opacity:1;}
+.screen{display:none;flex-direction:column;height:100%;}
+.screen.active{display:flex;}
+.tab-row{display:flex;background:#fff;border-bottom:0.5px solid #eee;flex-shrink:0;}
+.tab-item{flex:1;padding:9px 4px;text-align:center;font-size:11px;color:#aaa;cursor:pointer;}
+.tab-item.active{color:#22C9A0;border-bottom:2px solid #22C9A0;font-weight:500;}
+.content{padding:12px;overflow-y:auto;flex:1;}
+.section-card{background:#fff;border-radius:12px;border:0.5px solid #e8f4f0;margin-bottom:8px;overflow:hidden;}
+.section-header{padding:10px 12px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;}
+.sec-label{font-size:11px;font-weight:500;color:#22C9A0;display:flex;align-items:center;gap:5px;}
+.chevron{font-size:14px;color:#aaa;transition:transform 0.2s;display:inline-block;}
+.chevron.open{transform:rotate(180deg);}
+.section-body{padding:0 12px 10px;border-top:0.5px solid #f0f0f0;}
+.section-text{font-size:11px;color:#444;line-height:1.7;padding-top:8px;}
+.context-item{padding:10px 0;border-bottom:0.5px solid #f5f5f5;}
+.context-item:last-child{border-bottom:none;padding-bottom:0;}
+.context-title{font-size:11px;font-weight:500;color:#222;margin-bottom:5px;display:flex;align-items:center;gap:5px;}
+.context-dot{width:6px;height:6px;border-radius:50%;background:#22C9A0;flex-shrink:0;}
+.context-text{font-size:11px;color:#666;line-height:1.7;padding-left:11px;}
+.keyword-wrap{display:flex;flex-wrap:wrap;gap:6px;padding-top:8px;}
+.kw{background:#E6F7F3;border-radius:8px;padding:4px 10px;font-size:11px;color:#0F6E56;font-weight:500;}
+.kw.purple{background:#EEEDFE;color:#3C3489;}
+.kw.coral{background:#FAECE7;color:#712B13;}
+.script-item{margin-bottom:10px;}
+.script-time{font-size:10px;color:#aaa;margin-bottom:2px;}
+.script-text{font-size:11px;color:#333;line-height:1.6;}
+.chat-panel{background:#fff;border-top:0.5px solid #eee;padding:8px 12px 12px;flex-shrink:0;}
+.panel-handle{width:36px;height:3px;background:#ddd;border-radius:2px;margin:0 auto 8px;}
+.panel-title{font-size:11px;font-weight:500;color:#888;margin-bottom:8px;display:flex;align-items:center;gap:4px;}
+.chat-msg{font-size:11px;color:#444;background:#F7FAF9;border-radius:8px;padding:7px 9px;margin-bottom:5px;}
+.chat-msg.mine{background:#E6F7F3;color:#0F6E56;text-align:right;}
+.chat-input-row{display:flex;align-items:center;gap:6px;background:#F7FAF9;border-radius:10px;border:0.5px solid #e0f0eb;padding:7px 10px;margin-top:6px;}
+.chat-input-row span{font-size:11px;color:#bbb;flex:1;}
+.pdf-viewer{margin:10px 12px 0;background:#fff;border-radius:12px;border:0.5px solid #e0e0e0;padding:14px;flex-shrink:0;}
+.pdf-page-label{font-size:10px;color:#aaa;margin-bottom:10px;display:flex;justify-content:space-between;}
+.pdf-heading{font-size:12px;font-weight:500;color:#222;margin-bottom:8px;}
+.pdf-line{height:5px;background:#eee;border-radius:3px;margin-bottom:5px;}
+.pdf-highlight{height:5px;background:#B8E8DC;border-radius:3px;margin-bottom:5px;}
+.pdf-nav{display:flex;justify-content:center;align-items:center;gap:20px;padding:8px 0;background:#fff;border-top:0.5px solid #eee;margin:0 12px;flex-shrink:0;}
+
+/* Tabler icons */
+@import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css');
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="statusbar"><span>9:41</span><span>●●●</span></div>
+
+  <!-- ───── 내 작업 화면 ───── -->
+  <div class="screen active" id="screen-worklist">
+    <div class="header">
+      <div class="header-title">내 작업</div>
+      <div style="display:flex;gap:7px;">
+        <div class="icon-btn"><i class="ti ti-search"></i></div>
+        <div class="icon-btn"><i class="ti ti-dots"></i></div>
+      </div>
+    </div>
+    <div style="overflow-y:auto;flex:1;">
+      <div class="search-bar">
+        <i class="ti ti-search" style="font-size:14px;color:#bbb;"></i>
+        <span>파일 또는 폴더 검색...</span>
+      </div>
+      <div class="section-label">폴더</div>
+      <div class="grid">
+        <div class="folder-item" onclick="goTo('screen-folder')">
+          <div class="folder-icon" style="background:#E6F7F3;position:relative;">
+            <i class="ti ti-folder" style="color:#22C9A0;font-size:26px;"></i>
+            <span class="badge">2</span>
+          </div>
+          <div class="folder-name">3월 회의</div>
+          <div class="folder-meta">파일 4개</div>
+        </div>
+        <div class="folder-item">
+          <div class="folder-icon" style="background:#EEEDFE;">
+            <i class="ti ti-folder" style="color:#7F77DD;font-size:26px;"></i>
+          </div>
+          <div class="folder-name">알고리즘 강의</div>
+          <div class="folder-meta">파일 7개</div>
+        </div>
+        <div class="folder-item">
+          <div class="folder-icon" style="background:#FAECE7;">
+            <i class="ti ti-folder" style="color:#D85A30;font-size:26px;"></i>
+          </div>
+          <div class="folder-name">마케팅 기획</div>
+          <div class="folder-meta">파일 2개</div>
+        </div>
+        <div class="folder-item">
+          <div class="folder-icon" style="background:#E6F7F3;">
+            <i class="ti ti-hierarchy-2" style="color:#22C9A0;font-size:22px;"></i>
+          </div>
+          <div class="folder-name">지식 그래프</div>
+          <div class="folder-meta">노드 12개</div>
+        </div>
+        <div class="new-item" onclick="openSheet()">
+          <i class="ti ti-plus" style="font-size:20px;color:#22C9A0;"></i>
+          <div class="folder-name" style="color:#22C9A0;">새 파일</div>
+        </div>
+      </div>
+      <div class="section-label">최근 파일</div>
+      <div class="grid">
+        <div class="folder-item" onclick="goTo('screen-audio')">
+          <div class="folder-icon" style="background:#E6F7F3;">
+            <i class="ti ti-microphone" style="color:#22C9A0;font-size:22px;"></i>
+          </div>
+          <div class="folder-name">3월 마케팅 회의록</div>
+          <div class="folder-meta">42분 · 23MB</div>
+        </div>
+        <div class="folder-item converting">
+          <div class="folder-icon" style="background:#fff3e8;position:relative;">
+            <i class="ti ti-microphone" style="color:#D85A30;font-size:22px;"></i>
+            <svg class="prog-ring" viewBox="0 0 18 18">
+              <circle cx="9" cy="9" r="7" fill="none" stroke="#f0e0c8" stroke-width="2"/>
+              <circle cx="9" cy="9" r="7" fill="none" stroke="#D85A30" stroke-width="2" stroke-dasharray="29 15" stroke-linecap="round" transform="rotate(-90 9 9)"/>
+            </svg>
+          </div>
+          <div class="folder-name">팀 미팅 0602</div>
+          <div class="folder-meta" style="color:#D85A30;">변환중 67%</div>
+        </div>
+        <div class="folder-item" onclick="goTo('screen-pdf')">
+          <div class="folder-icon" style="background:#EEEDFE;">
+            <i class="ti ti-file-text" style="color:#7F77DD;font-size:22px;"></i>
+          </div>
+          <div class="folder-name">알고리즘 요약본</div>
+          <div class="folder-meta">PDF · 41MB</div>
+        </div>
+      </div>
+      <div style="height:12px;"></div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><i class="ti ti-home" style="font-size:20px;color:#aaa;"></i><span class="tab-label">홈</span></div>
+      <div class="tab"><i class="ti ti-folder" style="font-size:20px;color:#22C9A0;"></i><span class="tab-label active">내 작업</span></div>
+      <div class="rec-btn" onclick="openSheet()"><i class="ti ti-plus" style="font-size:22px;color:#fff;"></i></div>
+      <div class="tab"><i class="ti ti-hierarchy-2" style="font-size:20px;color:#aaa;"></i><span class="tab-label">그래프</span></div>
+      <div class="tab"><i class="ti ti-dots" style="font-size:20px;color:#aaa;"></i><span class="tab-label">더보기</span></div>
+    </div>
+  </div>
+
+  <!-- ───── 폴더 진입 화면 ───── -->
+  <div class="screen" id="screen-folder">
+    <div class="header">
+      <i class="ti ti-arrow-left" style="font-size:20px;color:#22C9A0;cursor:pointer;" onclick="goBack()"></i>
+      <span class="header-title">3월 회의</span>
+      <span class="header-meta">파일 4개</span>
+      <div class="icon-btn"><i class="ti ti-dots"></i></div>
+    </div>
+    <div style="overflow-y:auto;flex:1;">
+      <div class="search-bar">
+        <i class="ti ti-search" style="font-size:14px;color:#bbb;"></i>
+        <span>파일 검색...</span>
+      </div>
+      <div class="section-label">파일</div>
+      <div class="grid">
+        <div class="folder-item" onclick="goTo('screen-audio')">
+          <div class="folder-icon" style="background:#E6F7F3;">
+            <i class="ti ti-microphone" style="color:#22C9A0;font-size:22px;"></i>
+          </div>
+          <div class="folder-name">마케팅 회의</div>
+          <div class="folder-meta">42분</div>
+        </div>
+        <div class="folder-item converting">
+          <div class="folder-icon" style="background:#fff3e8;position:relative;">
+            <i class="ti ti-microphone" style="color:#D85A30;font-size:22px;"></i>
+            <svg style="position:absolute;bottom:-3px;right:-3px;width:16px;height:16px;" viewBox="0 0 18 18">
+              <circle cx="9" cy="9" r="7" fill="none" stroke="#f0e0c8" stroke-width="2"/>
+              <circle cx="9" cy="9" r="7" fill="none" stroke="#D85A30" stroke-width="2" stroke-dasharray="29 15" stroke-linecap="round" transform="rotate(-90 9 9)"/>
+            </svg>
+          </div>
+          <div class="folder-name">팀 미팅</div>
+          <div class="folder-meta" style="color:#D85A30;">변환중 67%</div>
+        </div>
+        <div class="folder-item" onclick="goTo('screen-pdf')">
+          <div class="folder-icon" style="background:#EEEDFE;">
+            <i class="ti ti-file-text" style="color:#7F77DD;font-size:22px;"></i>
+          </div>
+          <div class="folder-name">회의 자료.pdf</div>
+          <div class="folder-meta">PDF</div>
+        </div>
+        <div class="folder-item" onclick="goTo('screen-audio')">
+          <div class="folder-icon" style="background:#E6F7F3;">
+            <i class="ti ti-microphone" style="color:#22C9A0;font-size:22px;"></i>
+          </div>
+          <div class="folder-name">주간 리뷰</div>
+          <div class="folder-meta">38분</div>
+        </div>
+        <div class="new-item" onclick="openSheet()">
+          <i class="ti ti-plus" style="font-size:20px;color:#22C9A0;"></i>
+          <div class="folder-name" style="color:#22C9A0;">새 파일</div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-panel">
+      <div class="panel-handle"></div>
+      <div class="panel-title">
+        <i class="ti ti-message" style="font-size:13px;color:#22C9A0;"></i>
+        이 폴더로 질문하기
+      </div>
+      <div class="chat-msg">3월 회의에서 결정된 사항이 뭔가요?</div>
+      <div class="chat-msg mine">예산 15% 증액, 인스타그램 릴스 채널 전략 확정이 주요 결정사항입니다.</div>
+      <div class="chat-input-row">
+        <span>이 폴더 내용으로 질문하세요...</span>
+        <i class="ti ti-send" style="font-size:16px;color:#22C9A0;"></i>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><i class="ti ti-home" style="font-size:20px;color:#aaa;"></i><span class="tab-label">홈</span></div>
+      <div class="tab"><i class="ti ti-folder" style="font-size:20px;color:#22C9A0;"></i><span class="tab-label active">내 작업</span></div>
+      <div class="rec-btn" onclick="openSheet()"><i class="ti ti-plus" style="font-size:22px;color:#fff;"></i></div>
+      <div class="tab"><i class="ti ti-hierarchy-2" style="font-size:20px;color:#aaa;"></i><span class="tab-label">그래프</span></div>
+      <div class="tab"><i class="ti ti-dots" style="font-size:20px;color:#aaa;"></i><span class="tab-label">더보기</span></div>
+    </div>
+  </div>
+
+  <!-- ───── 음성파일 화면 ───── -->
+  <div class="screen" id="screen-audio">
+    <div class="header">
+      <i class="ti ti-arrow-left" style="font-size:20px;color:#22C9A0;cursor:pointer;" onclick="goBack()"></i>
+      <span class="header-title">3월 마케팅 회의록</span>
+      <div class="icon-btn"><i class="ti ti-share"></i></div>
+      <div class="icon-btn"><i class="ti ti-dots"></i></div>
+    </div>
+    <div class="tab-row">
+      <div class="tab-item active" onclick="showAudioTab('summary',this)">요약</div>
+      <div class="tab-item" onclick="showAudioTab('script',this)">스크립트</div>
+    </div>
+    <div class="content" id="audio-summary">
+      <div class="section-card">
+        <div class="section-header" onclick="toggle('a1')">
+          <div class="sec-label"><i class="ti ti-sparkles" style="font-size:12px;"></i>전체 요약</div>
+          <i class="ti ti-chevron-down chevron open" id="chev-a1"></i>
+        </div>
+        <div class="section-body" id="a1">
+          <div class="section-text">3월 마케팅 팀 회의에서는 2분기 캠페인 예산 조정과 SNS 콘텐츠 전략이 주요 안건으로 논의됐습니다. 예산은 전분기 대비 15% 증액하기로 결정했으며, 인스타그램 릴스를 핵심 채널로 선정하고 유튜브 쇼츠 병행 운영을 검토하기로 했습니다.</div>
+        </div>
+      </div>
+      <div class="section-card">
+        <div class="section-header" onclick="toggle('a2')">
+          <div class="sec-label"><i class="ti ti-list" style="font-size:12px;"></i>문단별 요약</div>
+          <i class="ti ti-chevron-down chevron open" id="chev-a2"></i>
+        </div>
+        <div class="section-body" id="a2">
+          <div class="context-item">
+            <div class="context-title"><div class="context-dot"></div>예산 조정 논의</div>
+            <div class="context-text">2분기 마케팅 예산을 전분기 대비 15% 증액하기로 합의했습니다. 신규 채널 진입 비용과 크리에이터 협업 비용 증가가 주요 이유입니다. 팀장 A는 보수적으로 10% 증액을 제안했으나 최종적으로 공격적 성장을 위해 15%로 결정됐습니다.</div>
+          </div>
+          <div class="context-item">
+            <div class="context-title"><div class="context-dot" style="background:#7F77DD;"></div>SNS 전략 재편</div>
+            <div class="context-text">인스타그램 릴스 콘텐츠를 핵심 채널로 선정했습니다. 기존 블로그 중심 전략에서 숏폼 영상 중심으로 전환하는 방향입니다. 유튜브 쇼츠 병행 운영은 리소스 제약으로 3분기부터 시작하는 것으로 잠정 합의했습니다.</div>
+          </div>
+          <div class="context-item">
+            <div class="context-title"><div class="context-dot" style="background:#D85A30;"></div>다음 회의 및 액션 아이템</div>
+            <div class="context-text">3월 28일 후속 미팅 확정. 마케팅 팀은 채널별 KPI 초안을, 콘텐츠 팀은 제작 일정표를 준비하기로 했습니다. 각 팀별 액션 아이템은 공유 드라이브에 사전 업로드 요청됐습니다.</div>
+          </div>
+        </div>
+      </div>
+      <div class="section-card">
+        <div class="section-header" onclick="toggle('a3')">
+          <div class="sec-label"><i class="ti ti-tag" style="font-size:12px;"></i>키워드</div>
+          <i class="ti ti-chevron-down chevron open" id="chev-a3"></i>
+        </div>
+        <div class="section-body" id="a3">
+          <div class="keyword-wrap">
+            <span class="kw">마케팅 예산</span>
+            <span class="kw">2분기</span>
+            <span class="kw">15% 증액</span>
+            <span class="kw purple">인스타그램</span>
+            <span class="kw purple">릴스</span>
+            <span class="kw purple">유튜브 쇼츠</span>
+            <span class="kw coral">SNS 전략</span>
+            <span class="kw coral">KPI</span>
+            <span class="kw">크리에이터</span>
+            <span class="kw coral">액션 아이템</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="content" id="audio-script" style="display:none;">
+      <div class="section-card">
+        <div style="padding:10px 12px;">
+          <div class="script-item"><div class="script-time">00:00:03</div><div class="script-text">안녕하세요, 오늘 회의 시작하겠습니다.</div></div>
+          <div class="script-item"><div class="script-time">00:00:12</div><div class="script-text">지난번 안건에 대해서 먼저 이야기해볼까요?</div></div>
+          <div class="script-item"><div class="script-time">00:00:24</div><div class="script-text">네, 말씀하신 대로 2분기 예산을 조정하는 방향으로 진행하면 좋을 것 같습니다.</div></div>
+          <div class="script-item"><div class="script-time">00:00:38</div><div class="script-text">인스타그램 릴스 쪽으로 집중하는 게 효율이 좋을 것 같아요.</div></div>
+          <div class="script-item"><div class="script-time">00:00:52</div><div class="script-text">유튜브 쇼츠도 같이 가면 좋겠는데, 리소스가 부족할 수 있어서요.</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-panel">
+      <div class="panel-handle"></div>
+      <div class="panel-title"><i class="ti ti-message" style="font-size:13px;color:#22C9A0;"></i>이 파일로 질문하기</div>
+      <div class="chat-msg">예산 증액 이유가 뭔가요?</div>
+      <div class="chat-msg mine">신규 채널 진입 비용과 크리에이터 협업 비용 증가로 15% 증액했습니다.</div>
+      <div class="chat-input-row">
+        <span>이 내용으로 질문하세요...</span>
+        <i class="ti ti-send" style="font-size:16px;color:#22C9A0;"></i>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><i class="ti ti-home" style="font-size:20px;color:#aaa;"></i><span class="tab-label">홈</span></div>
+      <div class="tab"><i class="ti ti-folder" style="font-size:20px;color:#22C9A0;"></i><span class="tab-label active">내 작업</span></div>
+      <div class="rec-btn"><i class="ti ti-plus" style="font-size:22px;color:#fff;"></i></div>
+      <div class="tab"><i class="ti ti-hierarchy-2" style="font-size:20px;color:#aaa;"></i><span class="tab-label">그래프</span></div>
+      <div class="tab"><i class="ti ti-dots" style="font-size:20px;color:#aaa;"></i><span class="tab-label">더보기</span></div>
+    </div>
+  </div>
+
+  <!-- ───── PDF 화면 ───── -->
+  <div class="screen" id="screen-pdf">
+    <div class="header">
+      <i class="ti ti-arrow-left" style="font-size:20px;color:#22C9A0;cursor:pointer;" onclick="goBack()"></i>
+      <span class="header-title">알고리즘 요약본.pdf</span>
+      <div class="icon-btn"><i class="ti ti-search"></i></div>
+      <div class="icon-btn"><i class="ti ti-dots"></i></div>
+    </div>
+    <div style="overflow-y:auto;flex:1;">
+      <div class="pdf-viewer">
+        <div class="pdf-page-label"><span>알고리즘 요약본.pdf</span><span>1 / 12</span></div>
+        <div class="pdf-heading">1. 정렬 알고리즘 개요</div>
+        <div class="pdf-line" style="width:100%;"></div>
+        <div class="pdf-line" style="width:90%;"></div>
+        <div class="pdf-highlight" style="width:80%;"></div>
+        <div class="pdf-line" style="width:100%;"></div>
+        <div class="pdf-line" style="width:70%;"></div>
+        <div class="pdf-heading" style="margin-top:10px;">2. 시간 복잡도 비교</div>
+        <div class="pdf-line" style="width:100%;"></div>
+        <div class="pdf-highlight" style="width:95%;"></div>
+        <div class="pdf-line" style="width:85%;"></div>
+        <div class="pdf-line" style="width:50%;"></div>
+      </div>
+      <div class="pdf-nav">
+        <i class="ti ti-chevron-left" style="font-size:18px;color:#aaa;cursor:pointer;"></i>
+        <span style="font-size:11px;color:#888;">1 / 12</span>
+        <i class="ti ti-chevron-right" style="font-size:18px;color:#22C9A0;cursor:pointer;"></i>
+      </div>
+    </div>
+    <div class="chat-panel">
+      <div class="panel-handle"></div>
+      <div class="panel-title"><i class="ti ti-message" style="font-size:13px;color:#22C9A0;"></i>이 파일로 질문하기</div>
+      <div class="chat-msg">버블 정렬 시간복잡도가 뭔가요?</div>
+      <div class="chat-msg mine">최악의 경우 O(n²)입니다. 평균도 동일하게 O(n²)예요.</div>
+      <div class="chat-input-row">
+        <span>이 내용으로 질문하세요...</span>
+        <i class="ti ti-send" style="font-size:16px;color:#22C9A0;"></i>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><i class="ti ti-home" style="font-size:20px;color:#aaa;"></i><span class="tab-label">홈</span></div>
+      <div class="tab"><i class="ti ti-folder" style="font-size:20px;color:#22C9A0;"></i><span class="tab-label active">내 작업</span></div>
+      <div class="rec-btn"><i class="ti ti-plus" style="font-size:22px;color:#fff;"></i></div>
+      <div class="tab"><i class="ti ti-hierarchy-2" style="font-size:20px;color:#aaa;"></i><span class="tab-label">그래프</span></div>
+      <div class="tab"><i class="ti ti-dots" style="font-size:20px;color:#aaa;"></i><span class="tab-label">더보기</span></div>
+    </div>
+  </div>
+
+  <!-- ───── 바텀 시트 ───── -->
+  <div class="overlay" id="overlay" onclick="closeSheet()"></div>
+  <div class="sheet" id="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">무엇을 추가할까요?</div>
+    <div class="sheet-options">
+      <div class="sheet-opt">
+        <div class="sheet-opt-icon" style="background:#E6F7F3;"><i class="ti ti-microphone" style="font-size:20px;color:#22C9A0;"></i></div>
+        <div class="sheet-opt-label">녹음 시작</div>
+        <div class="sheet-opt-sub">실시간 녹음</div>
+      </div>
+      <div class="sheet-opt">
+        <div class="sheet-opt-icon" style="background:#EEEDFE;"><i class="ti ti-upload" style="font-size:20px;color:#7F77DD;"></i></div>
+        <div class="sheet-opt-label">파일 업로드</div>
+        <div class="sheet-opt-sub">mp3, m4a, wav</div>
+      </div>
+      <div class="sheet-opt">
+        <div class="sheet-opt-icon" style="background:#FAECE7;"><i class="ti ti-file-text" style="font-size:20px;color:#D85A30;"></i></div>
+        <div class="sheet-opt-label">PDF 업로드</div>
+        <div class="sheet-opt-sub">강의 자료</div>
+      </div>
+      <div class="sheet-opt">
+        <div class="sheet-opt-icon" style="background:#F1EFE8;"><i class="ti ti-folder-plus" style="font-size:20px;color:#888780;"></i></div>
+        <div class="sheet-opt-label">새 폴더</div>
+        <div class="sheet-opt-sub">분류 만들기</div>
+      </div>
+      <div class="sheet-opt">
+        <div class="sheet-opt-icon" style="background:#E6F7F3;"><i class="ti ti-brand-google-drive" style="font-size:20px;color:#22C9A0;"></i></div>
+        <div class="sheet-opt-label">Google Drive</div>
+        <div class="sheet-opt-sub">드라이브 연동</div>
+      </div>
+    </div>
+    <button class="sheet-cancel" onclick="closeSheet()">취소</button>
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+let history = [];
+
+function goTo(id) {
+  const cur = document.querySelector('.screen.active');
+  if (cur) history.push(cur.id);
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function goBack() {
+  if (history.length > 0) {
+    const prev = history.pop();
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(prev).classList.add('active');
+  } else {
+    goTo('screen-worklist');
+  }
+}
+
+function openSheet() {
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('sheet').classList.add('show');
+}
+
+function closeSheet() {
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('sheet').classList.remove('show');
+}
+
+function toggle(id) {
+  const body = document.getElementById(id);
+  const chev = document.getElementById('chev-' + id);
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  chev.classList.toggle('open', !open);
+}
+
+function showAudioTab(name, el) {
+  document.getElementById('audio-summary').style.display = name === 'summary' ? 'block' : 'none';
+  document.getElementById('audio-script').style.display = name === 'script' ? 'block' : 'none';
+  document.querySelectorAll('#screen-audio .tab-item').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Colors } from '@/styles/theme';
 import { useMoreSheet } from './MoreSheet';
@@ -11,12 +11,12 @@ const ITEMS: {
   label: string;
   route: string;
   icon: keyof typeof Ionicons.glyphMap;
-  iconOutline: keyof typeof Ionicons.glyphMap;
+  iconSet?: 'ionicons' | 'material-community';
 }[] = [
-  { key: 'home', label: '홈', route: '/', icon: 'home', iconOutline: 'home-outline' },
-  { key: 'work', label: '내 작업', route: '/my-work', icon: 'folder', iconOutline: 'folder-outline' },
-  { key: 'graph', label: '그래프', route: '/graph', icon: 'git-network', iconOutline: 'git-network-outline' },
-  { key: 'more', label: '더보기', route: '/more', icon: 'ellipsis-horizontal', iconOutline: 'ellipsis-horizontal' },
+  { key: 'home', label: '홈', route: '/', icon: 'home-outline' },
+  { key: 'work', label: '내 작업', route: '/my-work', icon: 'folder-outline' },
+  { key: 'graph', label: '그래프', route: '/graph', icon: 'source-branch' as keyof typeof Ionicons.glyphMap, iconSet: 'material-community' },
+  { key: 'more', label: '더보기', route: '/more', icon: 'ellipsis-horizontal' },
 ];
 
 export function AppBottomBar({ active = 'work' }: { active?: ActiveTab }) {
@@ -34,11 +34,19 @@ export function AppBottomBar({ active = 'work' }: { active?: ActiveTab }) {
 
     return (
       <TouchableOpacity key={item.key} style={styles.tabItem} onPress={handlePress}>
-        <Ionicons
-          name={isActive ? item.icon : item.iconOutline}
-          size={22}
-          color={isActive ? Colors.mint : Colors.textLight}
-        />
+        {item.iconSet === 'material-community' ? (
+          <MaterialCommunityIcons
+            name="source-branch"
+            size={22}
+            color={isActive ? Colors.mint : Colors.textLight}
+          />
+        ) : (
+          <Ionicons
+            name={item.icon}
+            size={22}
+            color={isActive ? Colors.mint : Colors.textLight}
+          />
+        )}
         <Text style={isActive ? styles.tabLabelActive : styles.tabLabel}>{item.label}</Text>
       </TouchableOpacity>
     );
@@ -47,8 +55,8 @@ export function AppBottomBar({ active = 'work' }: { active?: ActiveTab }) {
   return (
     <View style={styles.tabBar}>
       {ITEMS.slice(0, 2).map(renderItem)}
-      <TouchableOpacity style={styles.recButton} onPress={() => router.push('/recording')}>
-        <Ionicons name="mic" size={26} color={Colors.white} />
+      <TouchableOpacity style={styles.recButton} onPress={() => router.push('/recording')} accessibilityLabel="녹음 시작">
+        <Ionicons name="mic" size={27} color={Colors.white} />
       </TouchableOpacity>
       {ITEMS.slice(2).map(renderItem)}
     </View>

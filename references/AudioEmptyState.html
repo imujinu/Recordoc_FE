@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>요약 미생성 상태</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:sans-serif;}
+body{background:#f0f0f0;display:flex;justify-content:center;padding:40px 20px;}
+.phone{width:360px;background:#F7FAF9;border-radius:36px;border:1.5px solid #ddd;overflow:hidden;position:relative;min-height:700px;}
+.statusbar{background:#fff;padding:10px 18px 6px;display:flex;justify-content:space-between;font-size:11px;color:#333;font-weight:500;}
+.header{background:#fff;border-bottom:0.5px solid #eee;padding:10px 14px;display:flex;align-items:center;gap:8px;}
+.header-title{font-size:14px;font-weight:600;color:#222;flex:1;}
+.icon-btn{width:30px;height:30px;border-radius:9px;background:#F0FAF7;border:0.5px solid #c8ede3;display:flex;align-items:center;justify-content:center;color:#22C9A0;font-size:15px;cursor:pointer;flex-shrink:0;}
+.tab-row{display:flex;background:#fff;border-bottom:0.5px solid #eee;flex-shrink:0;}
+.tab-item{flex:1;padding:9px 4px;text-align:center;font-size:11px;color:#aaa;cursor:pointer;}
+.tab-item.active{color:#22C9A0;border-bottom:2px solid #22C9A0;font-weight:500;}
+
+/* 미생성 empty state */
+.empty-state{display:flex;flex-direction:column;align-items:center;gap:14px;padding:36px 20px 20px;flex:1;}
+.empty-icon-wrap{width:80px;height:80px;border-radius:22px;background:#E6F7F3;display:flex;align-items:center;justify-content:center;position:relative;}
+.empty-badge{position:absolute;top:-5px;right:-5px;width:22px;height:22px;border-radius:11px;background:#fff;border:1.5px solid #e0f0eb;display:flex;align-items:center;justify-content:center;}
+.empty-title{font-size:15px;font-weight:700;color:#222;text-align:center;}
+.empty-sub{font-size:12px;color:#aaa;text-align:center;line-height:1.7;margin-top:-6px;}
+.info-pill{background:#F0FAF7;border-radius:11px;padding:11px 14px;display:flex;align-items:flex-start;gap:9px;width:100%;}
+.info-pill-text{font-size:11px;color:#0F6E56;line-height:1.7;}
+.gen-btn{width:100%;padding:14px 0;border-radius:13px;background:#22C9A0;border:none;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;margin-top:4px;}
+.gen-btn-label{font-size:13px;font-weight:600;color:#fff;}
+
+.chat-panel{background:#fff;border-top:0.5px solid #eee;padding:8px 14px 14px;flex-shrink:0;}
+.panel-title{font-size:11px;font-weight:500;color:#888;margin-bottom:8px;display:flex;align-items:center;gap:5px;}
+.chat-input-row{display:flex;align-items:center;gap:6px;background:#f5f5f5;border-radius:10px;border:0.5px solid #e8e8e8;padding:9px 12px;opacity:0.5;}
+.chat-input-row span{font-size:11px;color:#bbb;flex:1;}
+
+.tabbar{background:#fff;border-top:0.5px solid #eee;padding:8px 0 18px;display:flex;align-items:center;justify-content:space-around;}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;}
+.tab-label{font-size:9px;color:#aaa;}
+.tab-label.active{color:#22C9A0;}
+.rec-btn{width:46px;height:46px;border-radius:23px;background:#22C9A0;display:flex;align-items:center;justify-content:center;margin-top:-14px;cursor:pointer;}
+
+@import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css');
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="statusbar"><span>9:41</span><span>●●●</span></div>
+
+  <div class="header">
+    <i class="ti ti-arrow-left" style="font-size:20px;color:#22C9A0;cursor:pointer;"></i>
+    <span class="header-title">3월 마케팅 회의록</span>
+    <div class="icon-btn"><i class="ti ti-share"></i></div>
+    <div class="icon-btn"><i class="ti ti-dots"></i></div>
+  </div>
+
+  <div class="tab-row">
+    <div class="tab-item active">요약</div>
+    <div class="tab-item">스크립트</div>
+  </div>
+
+  <div class="empty-state">
+    <div class="empty-icon-wrap">
+      <i class="ti ti-file-description" style="font-size:36px;color:#22C9A0;"></i>
+      <div class="empty-badge">
+        <i class="ti ti-clock" style="font-size:12px;color:#aaa;"></i>
+      </div>
+    </div>
+    <div class="empty-title">아직 요약이 생성되지 않았어요</div>
+    <div class="empty-sub">버튼을 눌러 AI 요약 및 스크립트를<br>한 번에 생성할 수 있어요</div>
+    <div class="info-pill">
+      <i class="ti ti-info-circle" style="font-size:15px;color:#22C9A0;flex-shrink:0;margin-top:1px;"></i>
+      <div class="info-pill-text">요약과 스크립트는 함께 생성돼요.<br>생성 후 각 탭에서 확인할 수 있어요.</div>
+    </div>
+    <button class="gen-btn">
+      <i class="ti ti-sparkles" style="font-size:17px;color:#fff;"></i>
+      <span class="gen-btn-label">요약 및 스크립트 생성</span>
+    </button>
+  </div>
+
+  <div class="chat-panel">
+    <div class="panel-title">
+      <i class="ti ti-message" style="font-size:13px;color:#aaa;"></i>
+      이 파일로 질문하기
+    </div>
+    <div class="chat-input-row">
+      <span>요약 생성 후 질문할 수 있어요</span>
+      <i class="ti ti-send" style="font-size:15px;color:#ccc;"></i>
+    </div>
+  </div>
+
+  <div class="tabbar">
+    <div class="tab"><i class="ti ti-home" style="font-size:20px;color:#aaa;"></i><span class="tab-label">홈</span></div>
+    <div class="tab"><i class="ti ti-folder" style="font-size:20px;color:#22C9A0;"></i><span class="tab-label active">내 작업</span></div>
+    <div class="rec-btn"><i class="ti ti-plus" style="font-size:22px;color:#fff;"></i></div>
+    <div class="tab"><i class="ti ti-hierarchy-2" style="font-size:20px;color:#aaa;"></i><span class="tab-label">그래프</span></div>
+    <div class="tab"><i class="ti ti-dots" style="font-size:20px;color:#aaa;"></i><span class="tab-label">더보기</span></div>
+  </div>
+</div>
+</body>
+</html>

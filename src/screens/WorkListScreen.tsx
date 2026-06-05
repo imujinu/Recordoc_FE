@@ -1,111 +1,276 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { Colors } from '@/styles/theme';
+import { router, useFocusEffect } from 'expo-router';
+import {
+  inferFileKind,
+  listWorkItems,
+  type FileKind,
+  type FileWorkItem,
+  type FolderWorkItem,
+  type WorkItem,
+} from '@/api/files';
 import { useNewItemSheet } from '@/components/NewItemSheet';
+import { Colors } from '@/styles/theme';
 
 const FOLDER_COLORS = [
   { bg: Colors.mintLight, icon: Colors.mint },
   { bg: '#EEEDFE', icon: '#7F77DD' },
   { bg: '#FAECE7', icon: '#D85A30' },
+  { bg: '#F1EFE8', icon: '#888780' },
+  { bg: '#EAF3FF', icon: '#3A7BD5' },
 ];
 
-type WorkItem = {
-  id: number;
-  type: 'audio' | 'pdf';
-  title: string;
-  status: 'converting' | 'done';
-  date?: string;
-  progress?: number;
-  eta?: string;
-};
+function getStableColorIndex(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash) % FOLDER_COLORS.length;
+}
 
-type FolderItem = {
-  id: number;
-  title: string;
-  fileCount: number;
-  badge?: number;
-};
+function getDisplayTitle(file: FileWorkItem): string {
+  return file.title?.trim() || file.original_filename?.trim() || '제목 없는 파일';
+}
 
-const MOCK_FOLDERS: FolderItem[] = [
-  { id: 1, title: '3월 회의', fileCount: 4, badge: 2 },
-  { id: 2, title: '알고리즘 강의', fileCount: 7 },
-  { id: 3, title: '마케팅 기획', fileCount: 2 },
-  { id: 4, title: '지식 그래프', fileCount: 12 },
-];
+function getStatusLabel(status?: string | null): string {
+  if (!status) return '완료';
+  if (status === 'completed' || status === 'done') return '완료';
+  if (status === 'processing') return '처리 중';
+  if (status === 'failed') return '실패';
+  return status;
+}
 
-const MOCK_ITEMS: WorkItem[] = [
-  {
-    id: 1,
-    type: 'audio',
-    title: '3월 마케팅 회의록',
-    status: 'converting',
-    progress: 67,
-    eta: '약 1분 20초',
-  },
-  {
-    id: 2,
-    type: 'audio',
-    title: '팀 미팅 0602',
-    status: 'done',
-    date: '2026. 6. 1. 오전 11:02',
-  },
-  {
-    id: 3,
-    type: 'pdf',
-    title: '알고리즘 요약본',
-    status: 'done',
-    date: 'PDF · 41MB',
-  },
-];
+function formatDate(value?: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}.`;
+}
+
+function getKindMeta(kind: FileKind): {
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bg: string;
+  label: string;
+} {
+  if (kind === 'audio') {
+    return { icon: 'mic-outline', color: Colors.mint, bg: Colors.mintLight, label: '음성' };
+  }
+  if (kind === 'pdf') {
+    return { icon: 'document-text-outline', color: '#D85A30', bg: '#FAECE7', label: 'PDF' };
+  }
+  if (kind === 'ppt') {
+    return { icon: 'easel-outline', color: '#7F77DD', bg: '#EEEDFE', label: 'PPT' };
+  }
+  return { icon: 'document-outline', color: '#888780', bg: '#F1EFE8', label: '문서' };
+}
+
+function getStatusStyle(status?: string | null) {
+  if (status === 'failed') return styles.fileListStatusFail;
+  if (status === 'processing') return styles.fileListStatusProcessing;
+  return styles.fileListStatusDone;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : '내 작업 목록을 불러오지 못했습니다.';
+}
 
 export default function WorkListScreen() {
-  const [items, setItems] = useState(MOCK_ITEMS);
-  const { openSheet } = useNewItemSheet();
+  const { openSheet, workItemsRevision } = useNewItemSheet();
+  const [items, setItems] = useState<WorkItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [recentExpanded, setRecentExpanded] = useState(false);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setItems((prev) =>
-        prev.map((item) => {
-          if (item.status === 'converting' && item.progress !== undefined) {
-            const next = Math.min(item.progress + 1, 100);
-            const remaining = Math.round(((100 - next) / 100) * 80);
-            const eta =
-              remaining > 60
-                ? `약 ${Math.floor(remaining / 60)}분 ${remaining % 60}초`
-                : `약 ${remaining}초`;
-
-            if (next === 100) {
-              return {
-                ...item,
-                status: 'done',
-                date: '2026. 6. 1. 오전 11:02',
-                progress: 100,
-              };
-            }
-
-            return { ...item, progress: next, eta };
-          }
-          return item;
-        })
-      );
-    }, 300);
-
-    return () => clearInterval(interval);
+  const loadWorkItems = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const nextItems = await listWorkItems();
+      setItems(nextItems);
+    } catch (loadError) {
+      setError(getErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const openItem = (item: WorkItem) => {
-    if (item.status === 'converting') return;
-    router.push(item.type === 'pdf' ? '/pdf' : '/detail');
+  useFocusEffect(
+    useCallback(() => {
+      void loadWorkItems();
+    }, [loadWorkItems])
+  );
+
+  useEffect(() => {
+    if (workItemsRevision > 0) {
+      void loadWorkItems();
+    }
+  }, [loadWorkItems, workItemsRevision]);
+
+  useEffect(() => {
+    setRecentExpanded(false);
+  }, [query]);
+
+  const folders = useMemo(() => items.filter((item): item is FolderWorkItem => item.type === 'folder'), [items]);
+  const files = useMemo(() => items.filter((item): item is FileWorkItem => item.type === 'file'), [items]);
+
+  const filteredFolders = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return folders;
+    return folders.filter((folder) => folder.name.toLowerCase().includes(normalized));
+  }, [folders, query]);
+
+  const filteredFiles = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return files;
+    return files.filter((file) => {
+      const title = getDisplayTitle(file).toLowerCase();
+      const original = file.original_filename?.toLowerCase() ?? '';
+      return title.includes(normalized) || original.includes(normalized);
+    });
+  }, [files, query]);
+
+  const openFolder = (folder: FolderWorkItem) => {
+    router.push(`/folder?folderId=${encodeURIComponent(folder.id)}&folderName=${encodeURIComponent(folder.name)}` as never);
   };
+
+  const openFile = (file: FileWorkItem) => {
+    const kind = inferFileKind(file);
+    const target = kind === 'audio' ? '/detail' : '/pdf';
+    router.push(`${target}?transcriptId=${encodeURIComponent(file.transcript_id)}` as never);
+  };
+
+  const renderFolderCard = (folder: FolderWorkItem) => {
+    const color = FOLDER_COLORS[getStableColorIndex(folder.id || folder.name)];
+    const fileCount = typeof folder.file_count === 'number' ? folder.file_count : null;
+
+    return (
+      <TouchableOpacity key={folder.id} style={styles.card} activeOpacity={0.8} onPress={() => openFolder(folder)}>
+        <View style={[styles.itemIcon, { backgroundColor: color.bg }]}>
+          <Ionicons name="folder-outline" size={25} color={color.icon} />
+        </View>
+        <Text style={styles.itemName} numberOfLines={2}>
+          {folder.name}
+        </Text>
+        <Text style={styles.itemMeta} numberOfLines={1}>
+          {fileCount === null ? '폴더' : `파일 ${fileCount}개`}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderFileRow = (file: FileWorkItem) => {
+    const kind = inferFileKind(file);
+    const meta = getKindMeta(kind);
+    const date = formatDate(file.created_at);
+    const status = getStatusLabel(file.status);
+
+    return (
+      <TouchableOpacity
+        key={file.transcript_id}
+        style={styles.fileListRow}
+        activeOpacity={0.8}
+        onPress={() => openFile(file)}
+      >
+        <View style={[styles.fileListIcon, { backgroundColor: meta.bg }]}>
+          <Ionicons name={meta.icon} size={20} color={meta.color} />
+        </View>
+        <View style={styles.fileListInfo}>
+          <Text style={styles.fileListName} numberOfLines={1}>
+            {getDisplayTitle(file)}
+          </Text>
+          <Text style={styles.fileListMeta} numberOfLines={1}>
+            {[meta.label, date].filter(Boolean).join(' · ')}
+          </Text>
+        </View>
+        <Text style={[styles.fileListStatus, getStatusStyle(file.status)]} numberOfLines={1}>
+          {status}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderFileState = () => {
+    const visibleFiles = recentExpanded ? filteredFiles.slice(0, 10) : filteredFiles.slice(0, 3);
+
+    if (loading) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="small" color={Colors.mint} />
+          <Text style={styles.emptyTitle}>내 작업 목록을 불러오는 중입니다</Text>
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="alert-circle-outline" size={30} color="#D85A30" />
+          <Text style={styles.emptyTitle}>목록을 불러오지 못했습니다</Text>
+          <Text style={styles.emptyDescription}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadWorkItems}>
+            <Text style={styles.retryText}>다시 시도</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (files.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="file-tray-outline" size={30} color={Colors.textLight} />
+          <Text style={styles.emptyTitle}>아직 추가한 파일이 없습니다</Text>
+          <Text style={styles.emptyDescription}>새 파일에서 음성이나 문서를 업로드해주세요</Text>
+        </View>
+      );
+    }
+
+    if (filteredFiles.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="search-outline" size={30} color={Colors.textLight} />
+          <Text style={styles.emptyTitle}>검색 결과가 없습니다</Text>
+          <Text style={styles.emptyDescription}>다른 파일명으로 검색해 주세요</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.fileList}>
+        {visibleFiles.map(renderFileRow)}
+        {!recentExpanded && filteredFiles.length > 3 && (
+          <TouchableOpacity style={styles.expandFilesButton} onPress={() => setRecentExpanded(true)}>
+            <Ionicons name="chevron-down" size={13} color={Colors.mint} />
+          </TouchableOpacity>
+        )}
+        {recentExpanded && (
+          <View style={styles.recentFooter}>
+            <TouchableOpacity style={styles.collapseFilesButton} onPress={() => setRecentExpanded(false)}>
+              <Ionicons name="chevron-up" size={13} color={Colors.mint} />
+            </TouchableOpacity>
+            {filteredFiles.length > 10 && (
+              <TouchableOpacity style={styles.viewAllLink}>
+                <Text style={styles.viewAllText}>전체 보기 ({filteredFiles.length}개) →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const showFolderEmpty = !loading && !error && filteredFolders.length === 0 && query.trim().length > 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -113,7 +278,7 @@ export default function WorkListScreen() {
         <Text style={styles.title}>내 작업</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="search" size={17} color={Colors.mint} />
+            <Ionicons name="search-outline" size={17} color={Colors.mint} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconButton}>
             <Ionicons name="ellipsis-horizontal" size={18} color={Colors.mint} />
@@ -123,79 +288,37 @@ export default function WorkListScreen() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={15} color="#bbb" />
-          <Text style={styles.searchText}>파일 또는 폴더 검색...</Text>
+          <Ionicons name="search-outline" size={15} color="#bbb" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="파일 검색..."
+            placeholderTextColor="#bbb"
+            value={query}
+            onChangeText={setQuery}
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={() => setQuery('')}>
+              <Ionicons name="close-circle" size={15} color={Colors.textLight} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <Text style={styles.sectionLabel}>폴더</Text>
         <View style={styles.grid}>
-          {MOCK_FOLDERS.map((folder, index) => (
-            <TouchableOpacity
-              key={folder.id}
-              style={styles.card}
-              activeOpacity={0.8}
-              onPress={() => router.push('/folder')}
-            >
-              <View style={[styles.itemIcon, { backgroundColor: FOLDER_COLORS[index % 3].bg }]}>
-                <Ionicons name="folder" size={27} color={FOLDER_COLORS[index % 3].icon} />
-                {folder.badge && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{folder.badge}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.itemName} numberOfLines={2}>
-                {folder.title}
-              </Text>
-              <Text style={styles.itemMeta}>파일 {folder.fileCount}개</Text>
+          {filteredFolders.map(renderFolderCard)}
+          {!showFolderEmpty && (
+            <TouchableOpacity style={styles.newCard} activeOpacity={0.8} onPress={openSheet}>
+              <Ionicons name="add" size={22} color={Colors.mint} />
+              <Text style={[styles.itemName, styles.newText]}>새 파일</Text>
             </TouchableOpacity>
-          ))}
-
-          <TouchableOpacity style={styles.newCard} activeOpacity={0.8} onPress={openSheet}>
-            <Ionicons name="add" size={22} color={Colors.mint} />
-            <Text style={[styles.itemName, styles.newText]}>새 파일</Text>
-          </TouchableOpacity>
+          )}
         </View>
+        {showFolderEmpty && (
+          <Text style={styles.folderEmptyText}>검색된 폴더가 없습니다</Text>
+        )}
 
         <Text style={styles.sectionLabel}>최근 파일</Text>
-        <View style={styles.grid}>
-          {items.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.card, item.status === 'converting' && styles.convertingCard]}
-              activeOpacity={0.8}
-              onPress={() => openItem(item)}
-            >
-              <View
-                style={[
-                  styles.itemIcon,
-                  item.status === 'converting'
-                    ? styles.convertingIcon
-                    : item.type === 'pdf'
-                      ? styles.pdfIcon
-                      : styles.audioIcon,
-                ]}
-              >
-                <Ionicons
-                  name={item.type === 'pdf' ? 'document-text-outline' : 'mic-outline'}
-                  size={23}
-                  color={item.status === 'converting' ? '#D85A30' : item.type === 'pdf' ? '#7F77DD' : Colors.mint}
-                />
-                {item.status === 'converting' && (
-                  <View style={styles.progressRing}>
-                    <Text style={styles.progressRingText}>{item.progress}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.itemName} numberOfLines={2}>
-                {item.title}
-              </Text>
-              <Text style={[styles.itemMeta, item.status === 'converting' && styles.convertingText]}>
-                {item.status === 'converting' ? `변환중 ${item.progress}%` : item.date}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {renderFileState()}
       </ScrollView>
     </SafeAreaView>
   );
@@ -252,9 +375,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
-  searchText: {
+  searchInput: {
+    flex: 1,
     fontSize: 12,
-    color: '#bbb',
+    color: Colors.textDark,
+    paddingVertical: 0,
   },
   sectionLabel: {
     fontSize: 11,
@@ -273,7 +398,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '31.8%',
-    minHeight: 96,
+    minHeight: 104,
     backgroundColor: Colors.white,
     borderRadius: 12,
     borderWidth: 0.5,
@@ -282,10 +407,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     gap: 5,
-  },
-  convertingCard: {
-    backgroundColor: '#FFFAF5',
-    borderColor: '#f0e0c8',
   },
   newCard: {
     width: '31.8%',
@@ -307,15 +428,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  audioIcon: {
-    backgroundColor: Colors.mintLight,
-  },
-  pdfIcon: {
-    backgroundColor: '#EEEDFE',
-  },
-  convertingIcon: {
-    backgroundColor: '#FFF3E8',
-  },
   itemName: {
     fontSize: 10,
     fontWeight: '500',
@@ -331,40 +443,131 @@ const styles = StyleSheet.create({
   newText: {
     color: Colors.mint,
   },
-  badge: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    backgroundColor: '#FF5A5A',
-    borderRadius: 5,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+  folderEmptyText: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    fontSize: 11,
+    color: Colors.textLight,
   },
-  badgeText: {
-    fontSize: 8,
-    color: Colors.white,
-    fontWeight: '600',
+  fileList: {
+    paddingBottom: 8,
   },
-  progressRing: {
-    position: 'absolute',
-    right: -6,
-    bottom: -7,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 3,
-    borderColor: '#D85A30',
+  fileListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     backgroundColor: Colors.white,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    marginHorizontal: 12,
+    marginBottom: 6,
+  },
+  fileListIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  fileListInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  fileListName: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: Colors.textDark,
+  },
+  fileListMeta: {
+    fontSize: 10,
+    color: Colors.textLight,
+    marginTop: 2,
+  },
+  fileListStatus: {
+    fontSize: 10,
+    fontWeight: '500',
+    flexShrink: 0,
+    maxWidth: 72,
+  },
+  fileListStatusDone: {
+    color: Colors.mint,
+  },
+  fileListStatusProcessing: {
+    color: '#7F77DD',
+  },
+  fileListStatusFail: {
+    color: '#E53935',
+  },
+  expandFilesButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    marginHorizontal: 12,
+    marginBottom: 6,
+  },
+  recentFooter: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 12,
+    minHeight: 28,
+    paddingBottom: 14,
+  },
+  collapseFilesButton: {
+    width: 22,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  progressRingText: {
-    fontSize: 7,
-    fontWeight: '700',
-    color: '#D85A30',
+  viewAllLink: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    height: 22,
+    justifyContent: 'center',
   },
-  convertingText: {
-    color: '#D85A30',
-    fontWeight: '500',
+  viewAllText: {
+    fontSize: 11,
+    lineHeight: 14,
+    color: Colors.mint,
+  },
+  emptyState: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  emptyTitle: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textDark,
+    textAlign: 'center',
+  },
+  emptyDescription: {
+    marginTop: 4,
+    fontSize: 11,
+    color: Colors.textLight,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.mintLight,
+  },
+  retryText: {
+    fontSize: 12,
+    color: Colors.mint,
+    fontWeight: '600',
   },
 });
