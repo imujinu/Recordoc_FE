@@ -35,7 +35,7 @@ export interface UseRealtimeTranscriptionReturn {
   start: () => Promise<void>;
   pause: () => void;
   resume: () => void;
-  stop: () => Promise<RealtimeTranscriptSegment[]>;
+  stop: () => Promise<void>;
 }
 
 type PermissionResponse = {
@@ -70,6 +70,19 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+// WAV 파일에서 raw PCM bytes만 추출.
+// 매 청크가 완전한 WAV 파일이므로 헤더를 제거하지 않으면 Deepgram이 헤더를 PCM으로 오해한다.
+// 'data' 서브청크 마커(0x64617461)를 직접 탐색해 비표준 WAV 헤더 변형에도 대응.
+function extractPcmFromWav(buffer: ArrayBuffer): ArrayBuffer {
+  const view = new DataView(buffer);
+  for (let i = 12; i < Math.min(buffer.byteLength - 8, 200); i++) {
+    if (view.getUint32(i, false) === 0x64617461) { // 'data' ASCII
+      return buffer.slice(i + 8); // data 마커(4) + 크기 필드(4) = 8바이트 스킵
+    }
+  }
+  return buffer.slice(44); // fallback: 표준 44바이트 헤더
 }
 
 function float32ToPCM16Buffer(samples: Float32Array): ArrayBuffer {

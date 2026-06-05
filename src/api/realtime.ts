@@ -1,6 +1,9 @@
 import { API_BASE_URL } from '@/constants/config';
 import { authFetch } from './auth';
 
+// 백엔드 RealtimeSaveRequest의 domain_type 허용값과 동일하게 유지
+export type RealtimeDomainType = 'general' | 'legal' | 'medical' | 'science' | 'it' | 'religion';
+
 interface RealtimeSegmentPayload {
   segment_index: number;
   start_seconds: number;

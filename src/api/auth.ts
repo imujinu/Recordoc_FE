@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import { API_BASE_URL } from '@/constants/config';
 
 type AuthStatus = 'auth' | 'unauth';
