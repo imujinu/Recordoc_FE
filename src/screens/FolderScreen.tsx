@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { inferFileKind, listFolderItems, type FileKind, type FileWorkItem } from '@/api/files';
+import { getProcessStatus, inferFileKind, listFolderItems, type FileKind, type FileWorkItem } from '@/api/files';
 import { AppBottomBar } from '@/components/AppBottomBar';
 import { useNewItemSheet } from '@/components/NewItemSheet';
 import { Colors } from '@/styles/theme';
@@ -126,7 +126,7 @@ export default function FolderScreen() {
         pathname: '/detail',
         params: {
           transcriptId: file.transcript_id,
-          status: file.status ?? 'pending',
+          status: getProcessStatus(file),
           title: file.title?.trim() ?? '',
         },
       });
@@ -137,6 +137,8 @@ export default function FolderScreen() {
       pathname: '/pdf',
       params: {
         transcriptId: file.transcript_id,
+        status: getProcessStatus(file),
+        title: getDisplayTitle(file),
       },
     });
   };

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import {
   Alert,
   SafeAreaView,
@@ -16,19 +16,37 @@ import {
   getTranscriptSummary,
   processFile,
   type ProcessStatus,
-  type TranscriptSummaryChunk,
+  type TranscriptSummaryContext,
   type TranscriptSummaryResponse,
   type TranscriptSummarySegment,
 } from '@/api/files';
 import { AppBottomBar } from '@/components/AppBottomBar';
 import { Colors } from '@/styles/theme';
 
-type TopTab = 'summary' | 'script';
-type SectionKey = 'overview' | 'paragraphs' | 'keywords';
+type DetailTab = 'summary' | 'script' | 'qa' | 'doc';
 type DetailStatus = ProcessStatus;
 type ChatMessage = { role: 'user' | 'ai'; text: string };
+type Template = '회의록' | '보고서' | '강의노트' | '할일목록';
+type Format = 'PDF' | 'Word' | '텍스트';
 
 const VALID_STATUSES: DetailStatus[] = ['pending', 'uploaded', 'processing', 'completed', 'failed'];
+const TABS: { key: DetailTab; label: string }[] = [
+  { key: 'summary', label: '요약' },
+  { key: 'script', label: '전체 텍스트' },
+  { key: 'qa', label: '질의응답' },
+  { key: 'doc', label: '문서 생성' },
+];
+const TEMPLATES: { key: Template; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: '회의록', icon: 'document-text-outline' },
+  { key: '보고서', icon: 'clipboard-outline' },
+  { key: '강의노트', icon: 'school-outline' },
+  { key: '할일목록', icon: 'checkbox-outline' },
+];
+const FORMATS: { key: Format; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'PDF', icon: 'document-outline' },
+  { key: 'Word', icon: 'document-text-outline' },
+  { key: '텍스트', icon: 'create-outline' },
+];
 
 function getSearchParam(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? '';
@@ -42,6 +60,16 @@ function normalizeStatus(status: string | undefined): DetailStatus {
 
 function cleanText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeTextItem(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number') return String(value);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return cleanText(record.keyword) || cleanText(record.title) || cleanText(record.name) || cleanText(record.summary);
+  }
+  return '';
 }
 
 function normalizeSeconds(value: number | string | null | undefined): number | null {
@@ -60,16 +88,16 @@ function formatSeconds(value: number | string | null | undefined): string {
   return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
-function getSummaryChunks(data: TranscriptSummaryResponse | null): TranscriptSummaryChunk[] {
-  return data?.chunks ?? data?.summaries ?? [];
+function getSummaryTitle(data: TranscriptSummaryResponse | null, fallback: string): string {
+  return cleanText(data?.overview?.title) || cleanText(data?.title) || fallback || '상세';
 }
 
 function getSummaryText(data: TranscriptSummaryResponse | null): string {
-  const directSummary = cleanText(data?.summary);
+  const directSummary = cleanText(data?.overview?.summary) || cleanText(data?.summary);
   if (directSummary) return directSummary;
 
-  return getSummaryChunks(data)
-    .map((chunk) => cleanText(chunk.summary) || cleanText(chunk.text))
+  return (data?.contexts ?? [])
+    .map((context) => cleanText(context.content))
     .filter(Boolean)
     .join('\n\n');
 }
@@ -79,7 +107,17 @@ function getFullText(data: TranscriptSummaryResponse | null): string {
     cleanText(data?.full_text) || cleanText(data?.fullText) || cleanText(data?.transcript) || cleanText(data?.text);
   if (directText) return directText;
 
-  const chunkText = getSummaryChunks(data)
+  const contextText = (data?.contexts ?? [])
+    .map((context) => {
+      const topic = cleanText(context.topic);
+      const content = cleanText(context.content);
+      return [topic, content].filter(Boolean).join('\n');
+    })
+    .filter(Boolean)
+    .join('\n\n');
+  if (contextText) return contextText;
+
+  const chunkText = (data?.chunks ?? data?.summaries ?? [])
     .map((chunk) => cleanText(chunk.full_text) || cleanText(chunk.fullText) || cleanText(chunk.text))
     .filter(Boolean)
     .join('\n\n');
@@ -91,14 +129,35 @@ function getFullText(data: TranscriptSummaryResponse | null): string {
     .join('\n');
 }
 
+function getKeyPoints(data: TranscriptSummaryResponse | null): string[] {
+  return (data?.overview?.key_points ?? []).map(normalizeTextItem).filter(Boolean);
+}
+
 function getKeywords(data: TranscriptSummaryResponse | null): string[] {
-  const keywords = data?.keywords ?? getSummaryChunks(data).flatMap((chunk) => chunk.keywords ?? []);
-  return Array.from(new Set(keywords.map((keyword) => keyword.trim()).filter(Boolean)));
+  const keywords = [
+    ...(data?.keywords ?? []),
+    ...(data?.contexts ?? []).flatMap((context) => [...(context.keywords ?? []), ...(context.concepts ?? [])]),
+    ...(data?.chunks ?? data?.summaries ?? []).flatMap((chunk) => chunk.keywords ?? []),
+  ];
+  return Array.from(new Set(keywords.map(normalizeTextItem).filter(Boolean)));
+}
+
+function getContexts(data: TranscriptSummaryResponse | null): TranscriptSummaryContext[] {
+  return data?.contexts?.filter((context) => cleanText(context.topic) || cleanText(context.content)) ?? [];
 }
 
 function getScriptSegments(data: TranscriptSummaryResponse | null): TranscriptSummarySegment[] {
   const segments = data?.segments?.filter((segment) => cleanText(segment.text)) ?? [];
   if (segments.length > 0) return segments;
+
+  const contexts = getContexts(data);
+  if (contexts.length > 0) {
+    return contexts.map((context) => ({
+      start_seconds: context.start_seconds,
+      end_seconds: context.end_seconds,
+      text: [cleanText(context.topic), cleanText(context.content)].filter(Boolean).join('\n'),
+    }));
+  }
 
   const fullText = getFullText(data);
   return fullText
@@ -117,27 +176,24 @@ export default function DetailScreen() {
     title?: string | string[];
   }>();
   const transcriptId = getSearchParam(params.transcriptId);
-  const title = getSearchParam(params.title);
+  const fallbackTitle = getSearchParam(params.title);
 
-  const [activeTab, setActiveTab] = useState<TopTab>('summary');
+  const [activeTab, setActiveTab] = useState<DetailTab>('summary');
   const [detailStatus, setDetailStatus] = useState<DetailStatus>(() => normalizeStatus(getSearchParam(params.status)));
-  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
-    overview: true,
-    paragraphs: true,
-    keywords: true,
-  });
-  const [panelOpen, setPanelOpen] = useState(true);
-  const [chats, setChats] = useState<ChatMessage[]>([]);
-  const [inputText, setInputText] = useState('');
   const [summaryData, setSummaryData] = useState<TranscriptSummaryResponse | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState('');
   const [canceling, setCanceling] = useState(false);
-
+  const [selectedTemplate, setSelectedTemplate] = useState<Template>('회의록');
+  const [selectedFormat, setSelectedFormat] = useState<Format>('PDF');
+  const [docGenerated, setDocGenerated] = useState(false);
+  const [chats, setChats] = useState<ChatMessage[]>([]);
+  const [inputText, setInputText] = useState('');
   const scrollRef = useRef<ScrollView>(null);
   const processAbortRef = useRef<AbortController | null>(null);
   const statusBeforeProcessingRef = useRef<DetailStatus>(detailStatus === 'processing' ? 'uploaded' : detailStatus);
   const isCompleted = detailStatus === 'completed';
+  const title = getSummaryTitle(summaryData, fallbackTitle);
 
   useEffect(() => {
     return () => {
@@ -159,25 +215,17 @@ export default function DetailScreen() {
     setSummaryError('');
 
     getTranscriptSummary(transcriptId, abortController.signal)
-      .then((data) => {
-        setSummaryData(data);
-      })
+      .then((data) => setSummaryData(data))
       .catch((error) => {
         if (abortController.signal.aborted) return;
-        setSummaryError(error instanceof Error ? error.message : '요약과 스크립트를 불러오지 못했습니다.');
+        setSummaryError(error instanceof Error ? error.message : '요약 데이터를 불러오지 못했습니다.');
       })
       .finally(() => {
-        if (!abortController.signal.aborted) {
-          setSummaryLoading(false);
-        }
+        if (!abortController.signal.aborted) setSummaryLoading(false);
       });
 
     return () => abortController.abort();
   }, [isCompleted, transcriptId]);
-
-  const toggleSection = (key: SectionKey) => {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
 
   const handleGenerate = async () => {
     if (detailStatus === 'processing') return;
@@ -201,11 +249,9 @@ export default function DetailScreen() {
         return;
       }
       setDetailStatus('failed');
-      Alert.alert('생성 실패', error instanceof Error ? error.message : '요약 및 스크립트 생성에 실패했습니다.');
+      Alert.alert('생성 실패', error instanceof Error ? error.message : '요약과 스크립트 생성에 실패했습니다.');
     } finally {
-      if (processAbortRef.current === abortController) {
-        processAbortRef.current = null;
-      }
+      if (processAbortRef.current === abortController) processAbortRef.current = null;
     }
   };
 
@@ -223,7 +269,7 @@ export default function DetailScreen() {
       setSummaryData(null);
       setSummaryError('');
     } catch (error) {
-      Alert.alert('중지 실패', error instanceof Error ? error.message : '요약 및 스크립트 생성을 중지하지 못했습니다.');
+      Alert.alert('중지 실패', error instanceof Error ? error.message : '요약 생성을 중지하지 못했습니다.');
     } finally {
       setCanceling(false);
     }
@@ -234,188 +280,181 @@ export default function DetailScreen() {
     setChats((prev) => [
       ...prev,
       { role: 'user', text: inputText },
-      { role: 'ai', text: '질문 기능은 요약 데이터 연동 후 이어서 연결할 수 있어요.' },
+      { role: 'ai', text: '스크립트와 요약 데이터를 기준으로 답변을 준비하고 있습니다.' },
     ]);
     setInputText('');
-    setPanelOpen(true);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={20} color={Colors.mint} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="share-outline" size={17} color={Colors.mint} />
+      <View style={styles.nav}>
+        <View style={styles.navLeft}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={20} color="#333" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="ellipsis-horizontal" size={18} color={Colors.mint} />
+          <Text style={styles.navTitle} numberOfLines={1}>
+            {title}
+          </Text>
+        </View>
+        <View style={styles.navRight}>
+          {activeTab === 'script' && (
+            <TouchableOpacity>
+              <Ionicons name="search-outline" size={20} color="#888" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity>
+            <Ionicons name="share-outline" size={20} color="#888" />
+          </TouchableOpacity>
+          <TouchableOpacity>
+            <Ionicons name="ellipsis-vertical" size={20} color="#888" />
           </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.tabRow}>
-        <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'summary' && styles.tabItemActive]}
-          onPress={() => setActiveTab('summary')}
-        >
-          <Text style={[styles.tabText, activeTab === 'summary' && styles.tabTextActive]}>요약</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'script' && styles.tabItemActive]}
-          onPress={() => setActiveTab('script')}
-        >
-          <Text style={[styles.tabText, activeTab === 'script' && styles.tabTextActive]}>스크립트</Text>
-        </TouchableOpacity>
-      </View>
+      {isCompleted && (
+        <View style={styles.tabs}>
+          {TABS.map((tab) => (
+            <TouchableOpacity key={tab.key} style={styles.tabItem} onPress={() => setActiveTab(tab.key)}>
+              <Text style={[styles.tabTxt, activeTab === tab.key && styles.tabTxtActive]}>{tab.label}</Text>
+              {activeTab === tab.key && <View style={styles.tabUnderline} />}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
-      <View style={styles.body}>
-        {isCompleted ? (
-          activeTab === 'summary' ? (
-            <SummaryContent
-              data={summaryData}
-              loading={summaryLoading}
-              error={summaryError}
-              openSections={openSections}
-              toggleSection={toggleSection}
+      {isCompleted ? (
+        <>
+          {activeTab === 'summary' && (
+            <SummaryTab data={summaryData} loading={summaryLoading} error={summaryError} fallbackTitle={fallbackTitle} />
+          )}
+          {activeTab === 'script' && <ScriptTab data={summaryData} loading={summaryLoading} error={summaryError} />}
+          {activeTab === 'qa' && (
+            <QATab
+              chats={chats}
+              inputText={inputText}
+              setInputText={setInputText}
+              onSend={handleSend}
+              scrollRef={scrollRef}
             />
-          ) : (
-            <ScriptContent data={summaryData} loading={summaryLoading} error={summaryError} />
-          )
-        ) : (
-          <GenerationState
-            status={detailStatus}
-            onPress={handleGenerate}
-            onCancel={handleCancelGenerate}
-            disabled={!transcriptId}
-            canCancel={Boolean(transcriptId)}
-            canceling={canceling}
-          />
-        )}
-      </View>
+          )}
+          {activeTab === 'doc' && (
+            <DocTab
+              title={title}
+              selectedTemplate={selectedTemplate}
+              setSelectedTemplate={setSelectedTemplate}
+              selectedFormat={selectedFormat}
+              setSelectedFormat={setSelectedFormat}
+              docGenerated={docGenerated}
+              setDocGenerated={setDocGenerated}
+            />
+          )}
+        </>
+      ) : (
+        <GenerationState
+          status={detailStatus}
+          onPress={handleGenerate}
+          onCancel={handleCancelGenerate}
+          disabled={!transcriptId}
+          canCancel={Boolean(transcriptId)}
+          canceling={canceling}
+        />
+      )}
 
-      <RagPanel
-        open={panelOpen}
-        onToggle={() => setPanelOpen((prev) => !prev)}
-        chats={isCompleted ? chats : []}
-        inputText={inputText}
-        setInputText={setInputText}
-        onSend={handleSend}
-        scrollRef={scrollRef}
-        disabled={!isCompleted}
-      />
       <AppBottomBar active="work" />
     </SafeAreaView>
   );
 }
 
-function SummaryContent({
+function SummaryTab({
   data,
   loading,
   error,
-  openSections,
-  toggleSection,
+  fallbackTitle,
 }: {
   data: TranscriptSummaryResponse | null;
   loading: boolean;
   error: string;
-  openSections: Record<SectionKey, boolean>;
-  toggleSection: (key: SectionKey) => void;
+  fallbackTitle: string;
 }) {
   const summaryText = getSummaryText(data);
+  const title = getSummaryTitle(data, fallbackTitle);
+  const keyPoints = getKeyPoints(data);
+  const contexts = getContexts(data);
   const keywords = getKeywords(data);
-  const chunks = getSummaryChunks(data);
 
-  if (loading) {
-    return <DetailMessageState icon="sync-outline" title="요약을 불러오는 중이에요" />;
-  }
-
-  if (error) {
-    return <DetailMessageState icon="alert-circle-outline" title="요약을 불러오지 못했어요" description={error} tone="failed" />;
-  }
-
-  if (!summaryText && keywords.length === 0) {
-    return <DetailMessageState icon="document-text-outline" title="생성된 요약 데이터가 없어요" />;
+  if (loading) return <MessageState icon="sync-outline" title="요약을 불러오는 중입니다" />;
+  if (error) return <MessageState icon="alert-circle-outline" title="요약을 불러오지 못했습니다" description={error} tone="failed" />;
+  if (!summaryText && keyPoints.length === 0 && contexts.length === 0 && keywords.length === 0) {
+    return <MessageState icon="document-text-outline" title="생성된 요약 데이터가 없습니다" />;
   }
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      {summaryText && (
-        <CollapsibleSection
-          icon="sparkles-outline"
-          title="전체 요약"
-          open={openSections.overview}
-          onPress={() => toggleSection('overview')}
-        >
-          <Text style={styles.sectionText}>{summaryText}</Text>
-        </CollapsibleSection>
-      )}
-
-      {chunks.length > 0 && (
-        <CollapsibleSection
-          icon="list-outline"
-          title="구간별 요약"
-          open={openSections.paragraphs}
-          onPress={() => toggleSection('paragraphs')}
-        >
-          {chunks.map((chunk, index) => {
-            const chunkSummary = cleanText(chunk.summary) || cleanText(chunk.text);
-            const chunkFullText = cleanText(chunk.full_text) || cleanText(chunk.fullText);
-            return (
-              <View key={`${index}-${chunkSummary}`} style={styles.contextItem}>
-                <View style={styles.contextTitleRow}>
-                  <View style={[styles.contextDot, { backgroundColor: index % 2 === 0 ? Colors.mint : '#7F77DD' }]} />
-                  <Text style={styles.contextTitle}>구간 {index + 1}</Text>
-                </View>
-                <Text style={styles.contextText}>{chunkSummary || chunkFullText || '요약 내용이 없습니다.'}</Text>
-              </View>
-            );
-          })}
-        </CollapsibleSection>
-      )}
-
-      {keywords.length > 0 && (
-        <CollapsibleSection
-          icon="pricetag-outline"
-          title="키워드"
-          open={openSections.keywords}
-          onPress={() => toggleSection('keywords')}
-        >
-          <View style={styles.keywordWrap}>
-            {keywords.map((keyword, index) => (
-              <View
-                key={keyword}
-                style={[
-                  styles.keyword,
-                  index % 3 === 1 && styles.keywordPurple,
-                  index % 3 === 2 && styles.keywordCoral,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.keywordText,
-                    index % 3 === 1 && styles.keywordTextPurple,
-                    index % 3 === 2 && styles.keywordTextCoral,
-                  ]}
-                >
-                  {keyword}
-                </Text>
-              </View>
-            ))}
+      {summaryText ? (
+        <View style={styles.summarySection}>
+          <View style={styles.summaryTag}>
+            <Ionicons name="sparkles" size={11} color={Colors.mint} />
+            <Text style={styles.summaryTagTxt}>AI 요약</Text>
           </View>
-        </CollapsibleSection>
-      )}
+          <Text style={styles.summaryTitle}>{title}</Text>
+          <Text style={styles.summaryBody}>{summaryText}</Text>
+        </View>
+      ) : null}
+
+      {keyPoints.length > 0 ? (
+        <>
+          <View style={styles.divider} />
+          <View style={styles.summarySection}>
+            <Text style={styles.summaryTitle}>주요 포인트</Text>
+            <Text style={styles.summaryBody}>{keyPoints.map((point) => `• ${point}`).join('\n')}</Text>
+          </View>
+        </>
+      ) : null}
+
+      {contexts.length > 0 ? (
+        <>
+          <View style={styles.divider} />
+          <View style={styles.summarySection}>
+            <Text style={styles.summaryTitle}>구간별 요약</Text>
+            {contexts.map((context, index) => {
+              const topic = cleanText(context.topic) || `구간 ${index + 1}`;
+              const content = cleanText(context.content);
+              const timeLabel = `${formatSeconds(context.start_seconds)} - ${formatSeconds(context.end_seconds)}`;
+              return (
+                <View key={`${index}-${topic}`} style={styles.contextBlock}>
+                  <View style={styles.contextHeader}>
+                    <Text style={styles.contextTitle}>{topic}</Text>
+                    <Text style={styles.contextTime}>{timeLabel}</Text>
+                  </View>
+                  {content ? <Text style={styles.summaryBody}>{content}</Text> : null}
+                </View>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
+
+      {keywords.length > 0 ? (
+        <>
+          <View style={styles.divider} />
+          <View style={styles.summarySection}>
+            <Text style={styles.summaryTitle}>키워드</Text>
+            <View style={styles.keywordRow}>
+              {keywords.map((keyword) => (
+                <View key={keyword} style={styles.keyword}>
+                  <Text style={styles.keywordTxt}>{keyword}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </>
+      ) : null}
     </ScrollView>
   );
 }
 
-function ScriptContent({
+function ScriptTab({
   data,
   loading,
   error,
@@ -425,57 +464,174 @@ function ScriptContent({
   error: string;
 }) {
   const segments = getScriptSegments(data);
+  const lastSegment = segments[segments.length - 1];
 
-  if (loading) {
-    return <DetailMessageState icon="sync-outline" title="스크립트를 불러오는 중이에요" />;
-  }
-
-  if (error) {
-    return <DetailMessageState icon="alert-circle-outline" title="스크립트를 불러오지 못했어요" description={error} tone="failed" />;
-  }
-
-  if (segments.length === 0) {
-    return <DetailMessageState icon="document-text-outline" title="생성된 스크립트 데이터가 없어요" />;
-  }
+  if (loading) return <MessageState icon="sync-outline" title="전체 텍스트를 불러오는 중입니다" />;
+  if (error) return <MessageState icon="alert-circle-outline" title="전체 텍스트를 불러오지 못했습니다" description={error} tone="failed" />;
+  if (segments.length === 0) return <MessageState icon="document-text-outline" title="표시할 텍스트가 없습니다" />;
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <View style={styles.sectionCard}>
-        <View style={styles.scriptBody}>
-          {segments.map((segment, index) => (
-            <View key={`${index}-${segment.text}`} style={styles.scriptItem}>
-              <Text style={styles.scriptTime}>
-                {formatSeconds(segment.start_seconds ?? segment.startSeconds)}
-                {segment.end_seconds || segment.endSeconds ? ` - ${formatSeconds(segment.end_seconds ?? segment.endSeconds)}` : ''}
-              </Text>
-              <Text style={styles.scriptText}>{segment.text}</Text>
-            </View>
-          ))}
+    <View style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={styles.content}>
+        {segments.map((segment, index) => (
+          <View key={`${index}-${segment.text}`} style={styles.scriptBlock}>
+            <Text style={styles.scriptTime}>
+              {formatSeconds(segment.start_seconds ?? segment.startSeconds)}
+              {segment.end_seconds || segment.endSeconds ? ` - ${formatSeconds(segment.end_seconds ?? segment.endSeconds)}` : ''}
+            </Text>
+            <Text style={styles.scriptBody}>{segment.text}</Text>
+          </View>
+        ))}
+      </ScrollView>
+      <View style={styles.playerBar}>
+        <View style={styles.progBg}>
+          <View style={styles.progFill}>
+            <View style={styles.progHandle} />
+          </View>
+        </View>
+        <View style={styles.playerTime}>
+          <Text style={styles.playerTimeCurrent}>00:00</Text>
+          <Text style={styles.playerTimeTotal}>
+            {lastSegment?.end_seconds || lastSegment?.endSeconds ? formatSeconds(lastSegment.end_seconds ?? lastSegment.endSeconds) : '--:--'}
+          </Text>
         </View>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
-function DetailMessageState({
-  icon,
-  title,
-  description,
-  tone = 'normal',
+function QATab({
+  chats,
+  inputText,
+  setInputText,
+  onSend,
+  scrollRef,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  description?: string;
-  tone?: 'normal' | 'failed';
+  chats: ChatMessage[];
+  inputText: string;
+  setInputText: (text: string) => void;
+  onSend: () => void;
+  scrollRef: RefObject<ScrollView | null>;
 }) {
   return (
-    <View style={styles.emptyState}>
-      <View style={[styles.emptyIconWrap, tone === 'failed' && styles.emptyIconWrapFailed]}>
-        <Ionicons name={icon} size={36} color={tone === 'failed' ? '#D94A4A' : Colors.mint} />
+    <View style={{ flex: 1 }}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.chatList}>
+        {chats.length === 0 ? (
+          <View style={styles.qaEmpty}>
+            <Ionicons name="chatbubble-ellipses-outline" size={28} color="#bbb" />
+            <Text style={styles.qaEmptyText}>녹음 내용에 대해 질문해보세요</Text>
+          </View>
+        ) : (
+          chats.map((message, index) => (
+            <View key={`${message.role}-${index}`} style={message.role === 'user' ? styles.bubbleWrapUser : styles.bubbleWrapAi}>
+              {message.role === 'ai' && (
+                <View style={styles.aiAvatar}>
+                  <Ionicons name="sparkles" size={12} color={Colors.mint} />
+                </View>
+              )}
+              <View style={message.role === 'user' ? styles.bubbleUser : styles.bubbleAi}>
+                <Text style={message.role === 'user' ? styles.bubbleUserTxt : styles.bubbleAiTxt}>{message.text}</Text>
+              </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
+      <View style={styles.inputBar}>
+        <TextInput
+          style={styles.inputField}
+          placeholder="궁금한 내용을 질문해 보세요"
+          placeholderTextColor="#bbb"
+          value={inputText}
+          onChangeText={setInputText}
+          onSubmitEditing={onSend}
+        />
+        <TouchableOpacity style={styles.sendBtn} onPress={onSend}>
+          <Ionicons name="arrow-up" size={14} color="#fff" />
+        </TouchableOpacity>
       </View>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      {description ? <Text style={styles.emptySub}>{description}</Text> : null}
     </View>
+  );
+}
+
+function DocTab({
+  title,
+  selectedTemplate,
+  setSelectedTemplate,
+  selectedFormat,
+  setSelectedFormat,
+  docGenerated,
+  setDocGenerated,
+}: {
+  title: string;
+  selectedTemplate: Template;
+  setSelectedTemplate: (template: Template) => void;
+  selectedFormat: Format;
+  setSelectedFormat: (format: Format) => void;
+  docGenerated: boolean;
+  setDocGenerated: (generated: boolean) => void;
+}) {
+  const extension = selectedFormat === 'PDF' ? 'pdf' : selectedFormat === 'Word' ? 'docx' : 'txt';
+
+  return (
+    <ScrollView contentContainerStyle={styles.content}>
+      <TouchableOpacity style={styles.archiveRow}>
+        <Ionicons name="folder-outline" size={15} color="#888" />
+        <Text style={styles.archiveRowTxt}>문서 보관함</Text>
+        <Ionicons name="chevron-forward" size={14} color="#ccc" />
+      </TouchableOpacity>
+
+      <Text style={styles.docSectionTitle}>템플릿 선택</Text>
+      <View style={styles.templateGrid}>
+        {TEMPLATES.map((template) => (
+          <TouchableOpacity key={template.key} style={styles.templateItem} onPress={() => setSelectedTemplate(template.key)}>
+            <View style={[styles.templateIconBox, selectedTemplate === template.key && styles.templateIconBoxSel]}>
+              <Ionicons name={template.icon} size={22} color={selectedTemplate === template.key ? Colors.mint : '#aaa'} />
+              {selectedTemplate === template.key && (
+                <View style={styles.templateCheck}>
+                  <Ionicons name="checkmark" size={9} color="#fff" />
+                </View>
+              )}
+            </View>
+            <Text style={[styles.templateLabel, selectedTemplate === template.key && styles.templateLabelSel]}>{template.key}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <Text style={styles.docSectionTitle}>파일 형식</Text>
+      <View style={styles.formatGrid}>
+        {FORMATS.map((format) => (
+          <TouchableOpacity
+            key={format.key}
+            style={[styles.formatItem, selectedFormat === format.key && styles.formatItemSel]}
+            onPress={() => setSelectedFormat(format.key)}
+          >
+            <Ionicons name={format.icon} size={24} color={selectedFormat === format.key ? Colors.mint : '#aaa'} />
+            <Text style={[styles.formatLabel, selectedFormat === format.key && styles.formatLabelSel]}>{format.key}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <TouchableOpacity style={styles.docGenerateButton} onPress={() => setDocGenerated(true)}>
+        <Text style={styles.docGenerateButtonText}>문서 생성하기</Text>
+      </TouchableOpacity>
+
+      {docGenerated && (
+        <View style={styles.docDoneCard}>
+          <View style={styles.docDoneIcon}>
+            <Ionicons name="document-outline" size={22} color={Colors.mint} />
+          </View>
+          <View style={styles.docDoneInfo}>
+            <Text style={styles.docDoneTitle} numberOfLines={1}>
+              {title}.{extension}
+            </Text>
+            <Text style={styles.docDoneSub}>방금 생성됨 · {selectedFormat}</Text>
+          </View>
+          <TouchableOpacity style={styles.openButton}>
+            <Text style={styles.openButtonText}>열기</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
@@ -497,21 +653,16 @@ function GenerationState({
   const isProcessing = status === 'processing';
   const isFailed = status === 'failed';
   const title = isProcessing
-    ? '요약과 스크립트를 생성 중이에요'
+    ? '요약과 전체 텍스트를 생성 중입니다'
     : isFailed
-      ? '생성에 실패했어요'
-      : '아직 요약이 생성되지 않았어요';
+      ? '생성에 실패했습니다'
+      : '아직 요약이 생성되지 않았습니다';
   const description = isProcessing
-    ? '완료되면 요약과 스크립트 탭에서 확인할 수 있어요'
+    ? '완료되면 요약과 전체 텍스트 탭에서 확인할 수 있습니다.'
     : isFailed
-      ? '다시 시도하면 요약과 스크립트를 생성할 수 있어요'
-      : '버튼을 눌러 AI 요약 및 스크립트를 한 번에 생성할 수 있어요';
-  const infoText = isProcessing
-    ? '처리 중에는 화면을 닫아도 완료 후 다시 확인할 수 있어요.'
-    : isFailed
-      ? '네트워크 상태나 파일 처리 가능 여부를 확인한 뒤 다시 시도해주세요.'
-      : '요약과 스크립트는 함께 생성돼요. 생성 후 각 탭에서 확인할 수 있어요.';
-  const buttonLabel = isProcessing ? (canceling ? '중지 중' : '생성 중지') : isFailed ? '다시 생성' : '요약 및 스크립트 생성';
+      ? '다시 시도하면 요약과 전체 텍스트를 생성할 수 있습니다.'
+      : '버튼을 눌러 AI 요약과 전체 텍스트를 생성하세요.';
+  const buttonLabel = isProcessing ? (canceling ? '중지 중' : '생성 중지') : isFailed ? '다시 생성' : '요약 및 텍스트 생성';
 
   return (
     <View style={styles.emptyState}>
@@ -521,185 +672,296 @@ function GenerationState({
           size={36}
           color={isFailed ? '#D94A4A' : Colors.mint}
         />
-        <View style={styles.emptyBadge}>
-          <Ionicons name={isFailed ? 'refresh-outline' : 'time-outline'} size={12} color={Colors.textLight} />
-        </View>
       </View>
       <Text style={styles.emptyTitle}>{title}</Text>
       <Text style={styles.emptySub}>{description}</Text>
-      <View style={[styles.infoPill, isFailed && styles.infoPillFailed]}>
-        <Ionicons
-          name="information-circle-outline"
-          size={15}
-          color={isFailed ? '#D94A4A' : Colors.mint}
-          style={styles.infoIcon}
-        />
-        <Text style={[styles.infoPillText, isFailed && styles.infoPillTextFailed]}>{infoText}</Text>
-      </View>
       <TouchableOpacity
-        style={[
-          styles.genButton,
-          (disabled || canceling || (isProcessing && !canCancel)) && styles.genButtonDisabled,
-          isProcessing && styles.cancelButton,
-        ]}
+        style={[styles.genButton, (disabled || canceling || (isProcessing && !canCancel)) && styles.genButtonDisabled, isProcessing && styles.cancelButton]}
         onPress={isProcessing ? onCancel : onPress}
         disabled={disabled || canceling || (isProcessing && !canCancel)}
       >
-        <Ionicons name={isProcessing ? 'stop-circle-outline' : 'sparkles-outline'} size={17} color={Colors.white} />
+        <Ionicons name={isProcessing ? 'stop-circle-outline' : 'sparkles-outline'} size={17} color="#fff" />
         <Text style={styles.genButtonLabel}>{buttonLabel}</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-function CollapsibleSection({
+function MessageState({
   icon,
   title,
-  open,
-  onPress,
-  children,
+  description,
+  tone = 'normal',
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
-  open: boolean;
-  onPress: () => void;
-  children: ReactNode;
+  description?: string;
+  tone?: 'normal' | 'failed';
 }) {
   return (
-    <View style={styles.sectionCard}>
-      <TouchableOpacity style={styles.sectionHeader} onPress={onPress}>
-        <View style={styles.sectionLabelRow}>
-          <Ionicons name={icon} size={13} color={Colors.mint} />
-          <Text style={styles.sectionLabel}>{title}</Text>
-        </View>
-        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textLight} />
-      </TouchableOpacity>
-      {open && <View style={styles.sectionBody}>{children}</View>}
-    </View>
-  );
-}
-
-function RagPanel({
-  open,
-  onToggle,
-  chats,
-  inputText,
-  setInputText,
-  onSend,
-  scrollRef,
-  disabled,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  chats: ChatMessage[];
-  inputText: string;
-  setInputText: (text: string) => void;
-  onSend: () => void;
-  scrollRef: RefObject<ScrollView | null>;
-  disabled: boolean;
-}) {
-  return (
-    <View style={styles.chatPanel}>
-      <TouchableOpacity style={styles.panelHandleButton} onPress={onToggle}>
-        <View style={styles.panelHandle} />
-      </TouchableOpacity>
-      <View style={styles.panelTitleRow}>
-        <Ionicons name="chatbubble-ellipses-outline" size={14} color={disabled ? Colors.textLight : Colors.mint} />
-        <Text style={styles.panelTitle}>이 파일로 질문하기</Text>
+    <View style={styles.emptyState}>
+      <View style={[styles.emptyIconWrap, tone === 'failed' && styles.emptyIconWrapFailed]}>
+        <Ionicons name={icon} size={36} color={tone === 'failed' ? '#D94A4A' : Colors.mint} />
       </View>
-      {open && !disabled && (
-        <ScrollView ref={scrollRef} style={styles.chatScroll} contentContainerStyle={styles.chatList}>
-          {chats.map((message, index) => (
-            <View key={`${message.role}-${index}`} style={message.role === 'user' ? styles.chatMine : styles.chatAi}>
-              <Text style={message.role === 'user' ? styles.chatMineText : styles.chatAiText}>{message.text}</Text>
-            </View>
-          ))}
-        </ScrollView>
-      )}
-      <View style={[styles.inputRow, disabled && styles.inputRowDisabled]}>
-        <TextInput
-          style={styles.input}
-          placeholder={disabled ? '요약 생성 후 질문할 수 있어요' : '이 내용으로 질문하세요...'}
-          placeholderTextColor="#bbb"
-          value={disabled ? '' : inputText}
-          onChangeText={disabled ? undefined : setInputText}
-          onSubmitEditing={disabled ? undefined : onSend}
-          editable={!disabled}
-        />
-        <TouchableOpacity onPress={onSend} disabled={disabled}>
-          <Ionicons name="send" size={17} color={disabled ? '#ccc' : Colors.mint} />
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      {description ? <Text style={styles.emptySub}>{description}</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bg,
-  },
-  header: {
-    backgroundColor: Colors.white,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
-    paddingHorizontal: 14,
+  container: { flex: 1, backgroundColor: '#fff' },
+  nav: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
     paddingVertical: 10,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#eee',
+  },
+  navLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  navTitle: { fontSize: 14, fontWeight: '500', color: '#222', flex: 1 },
+  navRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  tabs: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#eee' },
+  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 10, position: 'relative' },
+  tabTxt: { fontSize: 12, color: '#aaa' },
+  tabTxtActive: { color: Colors.mint, fontWeight: '500' },
+  tabUnderline: {
+    position: 'absolute',
+    bottom: -1,
+    left: '10%',
+    width: '80%',
+    height: 2,
+    backgroundColor: Colors.mint,
+    borderRadius: 2,
+  },
+  content: { padding: 18, paddingBottom: 32 },
+  summarySection: { marginBottom: 12 },
+  summaryTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.mintLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginBottom: 7,
+  },
+  summaryTagTxt: { fontSize: 11, color: Colors.mint, fontWeight: '500' },
+  summaryTitle: { fontSize: 13, fontWeight: '500', color: '#222', marginBottom: 5 },
+  summaryBody: { fontSize: 12, color: '#666', lineHeight: 19 },
+  divider: { height: 0.5, backgroundColor: '#eee', marginVertical: 10 },
+  contextBlock: {
+    paddingVertical: 10,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#f0f0f0',
+  },
+  contextHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 5,
+  },
+  contextTitle: { flex: 1, fontSize: 12, fontWeight: '500', color: '#222' },
+  contextTime: { fontSize: 10, color: Colors.mint, fontWeight: '500' },
+  keywordRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  keyword: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: Colors.bg,
+    borderWidth: 0.5,
+    borderColor: '#e0e0e0',
+  },
+  keywordTxt: { fontSize: 11, color: '#888' },
+  scriptBlock: { marginBottom: 16 },
+  scriptTime: { fontSize: 11, color: Colors.mint, fontWeight: '500', marginBottom: 4 },
+  scriptBody: { fontSize: 13, color: '#333', lineHeight: 20 },
+  playerBar: {
+    borderTopWidth: 0.5,
+    borderTopColor: '#eee',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  progBg: {
+    height: 4,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+    marginBottom: 6,
+  },
+  progFill: {
+    height: '100%',
+    width: '20%',
+    backgroundColor: Colors.mint,
+    borderRadius: 4,
+    position: 'relative',
+  },
+  progHandle: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Colors.mint,
+    position: 'absolute',
+    right: -6,
+    top: -4,
+  },
+  playerTime: { flexDirection: 'row', justifyContent: 'space-between' },
+  playerTimeCurrent: { fontSize: 11, color: Colors.mint },
+  playerTimeTotal: { fontSize: 11, color: '#aaa' },
+  chatList: { padding: 16, gap: 10, paddingBottom: 8, flexGrow: 1 },
+  bubbleWrapUser: { flexDirection: 'row', justifyContent: 'flex-end' },
+  bubbleWrapAi: { flexDirection: 'row', justifyContent: 'flex-start', gap: 6 },
+  aiAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.mintLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+    flexShrink: 0,
+  },
+  bubbleUser: {
+    backgroundColor: Colors.mint,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderBottomRightRadius: 2,
+    maxWidth: '75%',
+  },
+  bubbleUserTxt: { fontSize: 13, color: '#fff', lineHeight: 19 },
+  bubbleAi: {
+    backgroundColor: Colors.bg,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderTopLeftRadius: 2,
+    maxWidth: '80%',
+    borderWidth: 0.5,
+    borderColor: '#e0e0e0',
+  },
+  bubbleAiTxt: { fontSize: 13, color: '#333', lineHeight: 19 },
+  qaEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+  qaEmptyText: { marginTop: 8, fontSize: 12, color: '#aaa' },
+  inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textDark,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 7,
-  },
-  iconButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    backgroundColor: '#F0FAF7',
+    marginHorizontal: 16,
+    marginBottom: 12,
     borderWidth: 0.5,
-    borderColor: '#c8ede3',
-    alignItems: 'center',
+    borderColor: '#ddd',
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: Colors.bg,
+  },
+  inputField: { flex: 1, fontSize: 13, color: '#333', paddingVertical: 0 },
+  sendBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Colors.mint,
     justifyContent: 'center',
-  },
-  tabRow: {
-    flexDirection: 'row',
-    backgroundColor: Colors.white,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border,
-  },
-  tabItem: {
-    flex: 1,
-    paddingVertical: 10,
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
   },
-  tabItemActive: {
-    borderBottomColor: Colors.mint,
+  archiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-end',
+    marginBottom: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#eee',
+    backgroundColor: Colors.bg,
   },
-  tabText: {
-    fontSize: 12,
-    color: Colors.textLight,
+  archiveRowTxt: { fontSize: 12, color: '#888' },
+  docSectionTitle: { fontSize: 12, fontWeight: '500', color: '#888', marginBottom: 10 },
+  templateGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  templateItem: { alignItems: 'center', gap: 5 },
+  templateIconBox: {
+    width: 52,
+    height: 60,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#eee',
+    backgroundColor: Colors.bg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
   },
-  tabTextActive: {
-    color: Colors.mint,
-    fontWeight: '600',
+  templateIconBoxSel: { borderWidth: 1.5, borderColor: Colors.mint, backgroundColor: Colors.mintLight },
+  templateCheck: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: Colors.mint,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  body: {
+  templateLabel: { fontSize: 11, color: '#aaa', textAlign: 'center' },
+  templateLabelSel: { color: Colors.mint, fontWeight: '500' },
+  formatGrid: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  formatItem: {
     flex: 1,
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#eee',
+    backgroundColor: Colors.bg,
   },
-  content: {
+  formatItemSel: { borderWidth: 1.5, borderColor: Colors.mint, backgroundColor: Colors.mintLight },
+  formatLabel: { fontSize: 11, color: '#aaa' },
+  formatLabelSel: { color: Colors.mint, fontWeight: '500' },
+  docGenerateButton: {
+    backgroundColor: Colors.mint,
+    paddingVertical: 13,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  docGenerateButtonText: { fontSize: 14, fontWeight: '500', color: '#fff' },
+  docDoneCard: {
+    backgroundColor: Colors.mintLight,
+    borderRadius: 14,
     padding: 12,
-    paddingBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
+  docDoneIcon: {
+    width: 40,
+    height: 46,
+    borderRadius: 6,
+    backgroundColor: '#fff',
+    borderWidth: 0.5,
+    borderColor: '#b8e8d8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  docDoneInfo: { flex: 1, minWidth: 0 },
+  docDoneTitle: { fontSize: 12, fontWeight: '500', color: Colors.mint },
+  docDoneSub: { fontSize: 10, color: '#5DCAA5', marginTop: 2 },
+  openButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: Colors.mint,
+    flexShrink: 0,
+  },
+  openButtonText: { fontSize: 11, color: '#fff', fontWeight: '500' },
   emptyState: {
     flex: 1,
     alignItems: 'center',
@@ -715,62 +977,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.mintLight,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
-  emptyIconWrapFailed: {
-    backgroundColor: '#FDECEC',
-  },
-  emptyBadge: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: Colors.white,
-    borderWidth: 1.5,
-    borderColor: '#e0f0eb',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textDark,
-    textAlign: 'center',
-  },
-  emptySub: {
-    fontSize: 12,
-    color: Colors.textLight,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginTop: -6,
-  },
-  infoPill: {
-    width: '100%',
-    backgroundColor: '#F0FAF7',
-    borderRadius: 11,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 9,
-  },
-  infoPillFailed: {
-    backgroundColor: '#FFF3F3',
-  },
-  infoIcon: {
-    marginTop: 1,
-  },
-  infoPillText: {
-    flex: 1,
-    fontSize: 11,
-    color: '#0F6E56',
-    lineHeight: 19,
-  },
-  infoPillTextFailed: {
-    color: '#9E2F2F',
-  },
+  emptyIconWrapFailed: { backgroundColor: '#FDECEC' },
+  emptyTitle: { fontSize: 15, fontWeight: '700', color: '#222', textAlign: 'center' },
+  emptySub: { fontSize: 12, color: '#999', textAlign: 'center', lineHeight: 20, marginTop: -6 },
   genButton: {
     width: '100%',
     borderRadius: 13,
@@ -782,209 +992,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  genButtonDisabled: {
-    opacity: 0.62,
-  },
-  cancelButton: {
-    backgroundColor: '#D85A30',
-  },
-  genButtonLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.white,
-  },
-  sectionCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
-    marginBottom: 8,
-    overflow: 'hidden',
-  },
-  sectionHeader: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sectionLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: Colors.mint,
-  },
-  sectionBody: {
-    borderTopWidth: 0.5,
-    borderTopColor: '#f0f0f0',
-    paddingHorizontal: 12,
-    paddingBottom: 10,
-  },
-  sectionText: {
-    fontSize: 12,
-    color: '#444',
-    lineHeight: 20,
-    paddingTop: 8,
-  },
-  contextItem: {
-    paddingVertical: 10,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#f5f5f5',
-  },
-  contextTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginBottom: 5,
-  },
-  contextDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  contextTitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: Colors.textDark,
-  },
-  contextText: {
-    fontSize: 12,
-    color: '#666',
-    lineHeight: 20,
-    paddingLeft: 11,
-  },
-  keywordWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    paddingTop: 8,
-  },
-  keyword: {
-    backgroundColor: Colors.mintLight,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  keywordPurple: {
-    backgroundColor: '#EEEDFE',
-  },
-  keywordCoral: {
-    backgroundColor: '#FAECE7',
-  },
-  keywordText: {
-    fontSize: 11,
-    color: '#0F6E56',
-    fontWeight: '500',
-  },
-  keywordTextPurple: {
-    color: '#3C3489',
-  },
-  keywordTextCoral: {
-    color: '#712B13',
-  },
-  scriptBody: {
-    padding: 12,
-  },
-  scriptItem: {
-    marginBottom: 10,
-  },
-  scriptTime: {
-    fontSize: 10,
-    color: Colors.textLight,
-    marginBottom: 2,
-  },
-  scriptText: {
-    fontSize: 12,
-    color: '#333',
-    lineHeight: 19,
-  },
-  chatPanel: {
-    backgroundColor: Colors.white,
-    borderTopWidth: 0.5,
-    borderTopColor: Colors.border,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  panelHandleButton: {
-    alignItems: 'center',
-    paddingTop: 8,
-    paddingBottom: 6,
-  },
-  panelHandle: {
-    width: 36,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: '#ddd',
-  },
-  panelTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 8,
-  },
-  panelTitle: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#888',
-  },
-  chatScroll: {
-    maxHeight: 112,
-  },
-  chatList: {
-    gap: 5,
-    paddingBottom: 3,
-  },
-  chatAi: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.bg,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    maxWidth: '88%',
-  },
-  chatMine: {
-    alignSelf: 'flex-end',
-    backgroundColor: Colors.mintLight,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    maxWidth: '88%',
-  },
-  chatAiText: {
-    fontSize: 11,
-    color: '#444',
-    lineHeight: 16,
-  },
-  chatMineText: {
-    fontSize: 11,
-    color: '#0F6E56',
-    lineHeight: 16,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: Colors.bg,
-    borderRadius: 10,
-    borderWidth: 0.5,
-    borderColor: '#e0f0eb',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    marginTop: 6,
-  },
-  inputRowDisabled: {
-    backgroundColor: '#f5f5f5',
-    borderColor: '#e8e8e8',
-    opacity: 0.68,
-  },
-  input: {
-    flex: 1,
-    fontSize: 11,
-    color: Colors.textDark,
-    paddingVertical: 0,
-  },
+  genButtonDisabled: { opacity: 0.62 },
+  cancelButton: { backgroundColor: '#D85A30' },
+  genButtonLabel: { fontSize: 13, fontWeight: '600', color: '#fff' },
 });

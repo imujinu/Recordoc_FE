@@ -44,13 +44,36 @@ export type TranscriptSummaryChunk = {
   full_text?: string | null;
   fullText?: string | null;
   text?: string | null;
-  keywords?: string[] | null;
+  keywords?: unknown[] | null;
   start_seconds?: number | string | null;
   end_seconds?: number | string | null;
 };
 
+export type TranscriptSummaryOverview = {
+  title?: string | null;
+  summary?: string | null;
+  key_points?: unknown[] | null;
+};
+
+export type TranscriptSummaryContext = {
+  index?: number | null;
+  topic?: string | null;
+  subtitle?: string | null;
+  content?: string | null;
+  keywords?: unknown[] | null;
+  concepts?: unknown[] | null;
+  learning_points?: unknown[] | null;
+  start_seconds?: number | string | null;
+  end_seconds?: number | string | null;
+  segment_start_index?: number | null;
+  segment_end_index?: number | null;
+};
+
 export type TranscriptSummaryResponse = {
   transcript_id?: string;
+  summary_id?: string;
+  persona_id?: string | null;
+  overview?: TranscriptSummaryOverview | null;
   title?: string | null;
   status?: ProcessStatus | string | null;
   summary?: string | null;
@@ -58,10 +81,11 @@ export type TranscriptSummaryResponse = {
   fullText?: string | null;
   transcript?: string | null;
   text?: string | null;
-  keywords?: string[] | null;
+  keywords?: unknown[] | null;
   segments?: TranscriptSummarySegment[] | null;
   chunks?: TranscriptSummaryChunk[] | null;
   summaries?: TranscriptSummaryChunk[] | null;
+  contexts?: TranscriptSummaryContext[] | null;
 };
 
 export type FileListItem = {
@@ -72,6 +96,8 @@ export type FileListItem = {
   original_filename?: string | null;
   mime_type?: string | null;
   status?: string | null;
+  content_status?: string | null;
+  index_status?: string | null;
   sort_order?: number | null;
   created_at?: string | null;
 };
@@ -156,6 +182,22 @@ export function inferFileKind(file: Pick<FileListItem, 'original_filename' | 'fi
   return 'document';
 }
 
+export function getProcessStatus(file: Pick<FileListItem, 'status' | 'content_status' | 'index_status'>): ProcessStatus {
+  if (file.status === 'failed' || file.content_status === 'failed' || file.index_status === 'failed') {
+    return 'failed';
+  }
+  if (file.status === 'processing' || file.content_status === 'processing' || file.index_status === 'processing') {
+    return 'processing';
+  }
+  if (file.status === 'completed' || (file.content_status === 'completed' && file.index_status === 'completed')) {
+    return 'completed';
+  }
+  if (file.status === 'uploaded') {
+    return 'uploaded';
+  }
+  return 'pending';
+}
+
 function getErrorMessage(body: ApiErrorBody, fallback: string): string {
   if (typeof body.detail === 'string') return body.detail;
   if (typeof body.message === 'string') return body.message;
@@ -228,7 +270,8 @@ export async function getTranscriptSummary(
   transcriptId: string,
   signal?: AbortSignal,
 ): Promise<TranscriptSummaryResponse> {
-  const response = await authFetch(`${API_BASE_URL}/transcripts/${encodeURIComponent(transcriptId)}/summary`, {
+  const response = await authFetch(`${API_BASE_URL}/audio/transcripts/${encodeURIComponent(transcriptId)}/summary`, {
+    method: 'POST',
     signal,
   });
 

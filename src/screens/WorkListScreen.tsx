@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import {
+  getProcessStatus,
   inferFileKind,
   listWorkItems,
   type FileKind,
@@ -152,7 +153,7 @@ export default function WorkListScreen() {
         pathname: '/detail',
         params: {
           transcriptId: file.transcript_id,
-          status: file.status ?? 'pending',
+          status: getProcessStatus(file),
           title: file.title?.trim() ?? '',
         },
       });
@@ -163,6 +164,8 @@ export default function WorkListScreen() {
       pathname: '/pdf',
       params: {
         transcriptId: file.transcript_id,
+        status: getProcessStatus(file),
+        title: getDisplayTitle(file),
       },
     });
   };

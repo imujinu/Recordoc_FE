@@ -69,6 +69,10 @@ export const styles = StyleSheet.create({
     backgroundColor: Colors.mintBadge,
     color: '#0F6E56',
   },
+  cachedScriptToken: {
+    backgroundColor: '#EAF7F3',
+    color: '#0F6E56',
+  },
   fullText: {
     marginTop: 8,
     fontSize: 12,
@@ -87,7 +91,12 @@ export const styles = StyleSheet.create({
     backgroundColor: Colors.white,
   },
   keywordActive: { backgroundColor: Colors.mint },
+  keywordCached: {
+    backgroundColor: '#EAF7F3',
+    borderColor: '#8BDDC8',
+  },
   keywordText: { fontSize: 10, color: Colors.mint },
+  keywordTextCached: { color: '#0F6E56' },
   keywordTextActive: { color: Colors.white },
 
   // 실시간 청크

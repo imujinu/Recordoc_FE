@@ -18,10 +18,13 @@ import StopRecordingModal from '@/components/StopRecordingModal';
 import SaveRecordingModal from '@/components/SaveRecordingModal';
 import { useRealtimeTranscription } from '@/hooks/useRealtimeTranscription';
 import { saveRealtimeTranscript } from '@/api/realtime';
+import { inferFileKind, listFiles, type FileListItem } from '@/api/files';
 import {
   ContextPopup,
   DocSelector,
+  type FileItem,
   ResultPanel,
+  normalizeSearchCacheKey,
   useScriptSearch,
 } from '../../SearchPanel';
 
@@ -38,16 +41,39 @@ function normalizeSearchToken(token: string): string {
   return token.trim().replace(EDGE_PUNCTUATION_PATTERN, '');
 }
 
+function getFileDisplayTitle(file: FileListItem): string {
+  return file.title?.trim() || file.original_filename?.trim() || '제목 없는 파일';
+}
+
+function toSearchDocument(file: FileListItem): FileItem | null {
+  const kind = inferFileKind(file);
+  if (kind !== 'audio' && kind !== 'pdf' && kind !== 'ppt') return null;
+
+  const isAudio = kind === 'audio';
+  const isPdf = kind === 'pdf';
+  return {
+    id: file.transcript_id,
+    name: getFileDisplayTitle(file),
+    type: kind,
+    meta: isAudio ? '오디오' : isPdf ? 'PDF' : 'PPT',
+    color: isAudio ? '#E6F7F3' : isPdf ? '#EEEDFE' : '#FAECE7',
+    iconColor: isAudio ? Colors.mint : isPdf ? '#7F77DD' : '#D85A30',
+    transcriptId: file.transcript_id,
+  };
+}
+
 function SelectableScriptText({
   text,
   style,
   selectedText,
+  searchedQueryKeys,
   onSelectText,
   suffix,
 }: {
   text: string;
   style: StyleProp<TextStyle>;
   selectedText: string;
+  searchedQueryKeys?: string[];
   onSelectText: (text: string) => void;
   suffix?: ReactNode;
 }) {
@@ -55,17 +81,21 @@ function SelectableScriptText({
     <Text style={style}>
       {splitScriptSentences(text).map((sentence, sentenceIndex) => {
         const sentenceText = sentence.trim();
+        const sentenceKey = normalizeSearchCacheKey(sentenceText);
         return sentence.split(TOKEN_PARTS_PATTERN).map((part, partIndex) => {
           if (!part || /^\s+$/.test(part)) return part;
 
           const query = normalizeSearchToken(part);
           if (!query) return part;
 
+          const queryKey = normalizeSearchCacheKey(query);
           const selected = selectedText === query || selectedText === sentenceText;
+          const cached =
+            searchedQueryKeys?.includes(queryKey) || searchedQueryKeys?.includes(sentenceKey);
           return (
             <Text
               key={`${sentenceIndex}-${partIndex}-${part}`}
-              style={selected && styles.selectedScriptToken}
+              style={[cached && styles.cachedScriptToken, selected && styles.selectedScriptToken]}
               suppressHighlighting
               onPress={() => onSelectText(query)}
               onLongPress={() => {
@@ -89,6 +119,7 @@ export default function RecordingScreen() {
   const [stopModal, setStopModal] = useState(false);
   const [saveModal, setSaveModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [searchDocuments, setSearchDocuments] = useState<FileItem[]>([]);
   const [expandedSummaries, setExpandedSummaries] = useState<Record<number, boolean>>({});
   const scrollRef = useRef<ScrollView>(null);
   const shouldLeaveRef = useRef(false);
@@ -109,6 +140,7 @@ export default function RecordingScreen() {
   const {
     selectedText,
     documents,
+    searchedQueryKeys,
     showPopup,
     showDocSelector,
     showResults,
@@ -143,7 +175,30 @@ export default function RecordingScreen() {
     onError: (message) => {
       Alert.alert('검색 실패', message);
     },
+    documents: searchDocuments,
   });
+
+  useEffect(() => {
+    let mounted = true;
+
+    listFiles()
+      .then((files) => {
+        if (!mounted) return;
+        setSearchDocuments(
+          files
+            .map(toSearchDocument)
+            .filter((file): file is FileItem => file !== null)
+        );
+      })
+      .catch((error) => {
+        console.warn('[Search] failed to load documents:', error);
+        if (mounted) setSearchDocuments([]);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // 녹음 시작/정리 — 기존 백엔드 연동 유지
   useEffect(() => {
@@ -209,40 +264,35 @@ export default function RecordingScreen() {
     setSaveModal(true);
   };
 
-  const handleStop = async (fileName: string) => {
+  const handleStop = (fileName: string) => {
     setSaveModal(false);
     setIsSaving(true);
-    try {
-      const result = await stop();
-      await saveRealtimeTranscript({
-        // 백엔드 유효 도메인 6종(general/legal/medical/science/it/religion) 중 하나여야 함.
-        // 'meeting'/'lecture'는 미정규화 경로라 그대로 저장되어 메타데이터 품질 저하 → 'general' 사용.
-        domain_type: 'general',
-        title: fileName, // 백엔드 필수 필드
-        duration_seconds: elapsedSeconds,
-        segments: result.map((seg) => ({
-          segment_index: seg.finalIndex,
-          start_seconds: Math.floor(seg.startSeconds),
-          end_seconds: Math.floor(seg.endSeconds),
-          text: seg.text,
-        })),
-      });
-      shouldLeaveRef.current = true;
-      router.back();
-    } catch (err: unknown) {
-      setIsSaving(false);
-      setSaveModal(true);
-      const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
-      Alert.alert('저장 실패', msg, [
-        {
-          text: '취소',
-          onPress: () => {
-            shouldLeaveRef.current = true;
-            router.back();
-          },
-        },
-      ]);
-    }
+    shouldLeaveRef.current = true;
+
+    const saveTask = (async () => {
+      try {
+        const result = await stop();
+        await saveRealtimeTranscript({
+          // 백엔드 유효 도메인 6종(general/legal/medical/science/it/religion) 중 하나여야 함.
+          // 'meeting'/'lecture'는 미정규화 경로라 그대로 저장되어 메타데이터 품질 저하 → 'general' 사용.
+          domain_type: 'general',
+          title: fileName, // 백엔드 필수 필드
+          duration_seconds: elapsedSeconds,
+          segments: result.map((seg) => ({
+            segment_index: seg.finalIndex,
+            start_seconds: Math.floor(seg.startSeconds),
+            end_seconds: Math.floor(seg.endSeconds),
+            text: seg.text,
+          })),
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
+        Alert.alert('저장 실패', msg);
+      }
+    })();
+
+    router.back();
+    void saveTask;
   };
 
   const handleDiscard = async () => {
@@ -344,6 +394,7 @@ export default function RecordingScreen() {
                     style={styles.summaryText}
                     text={chunk.summary}
                     selectedText={selectedText}
+                    searchedQueryKeys={searchedQueryKeys}
                     onSelectText={handleTextLongPress}
                   />
                   {isExpanded && chunk.fullText && (
@@ -351,28 +402,37 @@ export default function RecordingScreen() {
                       style={styles.fullText}
                       text={chunk.fullText}
                       selectedText={selectedText}
+                      searchedQueryKeys={searchedQueryKeys}
                       onSelectText={handleTextLongPress}
                     />
                   )}
                   {chunk.keywords.length > 0 && (
                     <View style={styles.keywordRow}>
-                      {chunk.keywords.map((word) => (
-                        <TouchableOpacity
-                          key={`${chunk.segmentIndex}-${word}`}
-                          style={[styles.keyword, activeKeyword === word && styles.keywordActive]}
-                          onPress={() => handleKeywordPress(word)}
-                          activeOpacity={0.7}
-                        >
-                          <Text
+                      {chunk.keywords.map((word) => {
+                        const cached = searchedQueryKeys.includes(normalizeSearchCacheKey(word));
+                        return (
+                          <TouchableOpacity
+                            key={`${chunk.segmentIndex}-${word}`}
                             style={[
-                              styles.keywordText,
-                              activeKeyword === word && styles.keywordTextActive,
+                              styles.keyword,
+                              cached && styles.keywordCached,
+                              activeKeyword === word && styles.keywordActive,
                             ]}
+                            onPress={() => handleKeywordPress(word)}
+                            activeOpacity={0.7}
                           >
-                            {word}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                            <Text
+                              style={[
+                                styles.keywordText,
+                                cached && styles.keywordTextCached,
+                                activeKeyword === word && styles.keywordTextActive,
+                              ]}
+                            >
+                              {word}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   )}
                   {chunk.fullText && (
@@ -403,6 +463,7 @@ export default function RecordingScreen() {
                   style={styles.liveText}
                   text={displayLiveText}
                   selectedText={selectedText}
+                  searchedQueryKeys={searchedQueryKeys}
                   onSelectText={handleTextLongPress}
                   suffix={isConnected && !isPaused ? <Text style={styles.cursor}>|</Text> : null}
                 />

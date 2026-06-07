@@ -24,6 +24,7 @@ const PANEL_MAX_HEIGHT = SCREEN_HEIGHT * 0.75;
 // 타입
 // ────────────────────────────────────────────────────────
 export type SearchScope = 'internal' | 'web' | 'both';
+type RagScope = 'document' | 'web' | 'hybrid';
 
 export type SourceLocation =
   | { type: 'timestamp'; value: string }
@@ -34,7 +35,7 @@ export type SearchResult = {
   title: string;
   snippet: string;
   source_name: string;
-  source_type: 'audio' | 'pdf' | 'ppt';
+  source_type: 'audio' | 'pdf' | 'ppt' | 'web';
   locations: SourceLocation[];
 };
 
@@ -177,7 +178,7 @@ type DocSelectorProps = {
   onClose: () => void;
 };
 
-export function DocSelector({ documents = MOCK_FILES, onSelect, onClose }: DocSelectorProps) {
+export function DocSelector({ documents = [], onSelect, onClose }: DocSelectorProps) {
   const getIcon = (type: FileItem['type']) => {
     switch (type) {
       case 'folder': return 'folder';
@@ -363,7 +364,7 @@ export function ResultPanel({
                 <View style={styles.resultFooter}>
                   <View style={styles.sourceChip}>
                     <Ionicons
-                      name={result.source_type === 'audio' ? 'mic-outline' : 'document-text-outline'}
+                      name={getSourceIcon(result.source_type)}
                       size={11}
                       color={MINT}
                     />
@@ -394,6 +395,13 @@ type UseScriptSearchOptions = {
   onError?: (message: string) => void;
 };
 
+type SearchCacheEntry = {
+  query: string;
+  scope: SearchScope;
+  source: FileItem | null;
+  results: SearchResult[];
+};
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -405,6 +413,16 @@ function getTranscriptIds(file: FileItem): string[] {
 
 function uniqueUuidList(ids: string[]): string[] {
   return Array.from(new Set(ids.filter((id) => UUID_PATTERN.test(id))));
+}
+
+export function normalizeSearchCacheKey(text: string): string {
+  return text.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
+function toRagScope(scope: SearchScope): RagScope {
+  if (scope === 'web') return 'web';
+  if (scope === 'both') return 'hybrid';
+  return 'document';
 }
 
 function secondsToTimestamp(totalSeconds: number): string {
@@ -456,7 +474,14 @@ function normalizeLocations(item: Record<string, unknown>): SourceLocation[] {
 }
 
 function normalizeSourceType(value: unknown): SearchResult['source_type'] {
-  return value === 'pdf' || value === 'ppt' ? value : 'audio';
+  if (value === 'pdf' || value === 'ppt' || value === 'web') return value;
+  return 'audio';
+}
+
+function getSourceIcon(sourceType: SearchResult['source_type']) {
+  if (sourceType === 'web') return 'globe-outline';
+  if (sourceType === 'audio') return 'mic-outline';
+  return 'document-text-outline';
 }
 
 function normalizeRagResponse(data: unknown): SearchResult[] {
@@ -476,8 +501,10 @@ function normalizeRagResponse(data: unknown): SearchResult[] {
       id: String(item.id ?? item.chunk_id ?? item.segment_id ?? `result-${index}`),
       title: String(item.title ?? item.topic ?? item.source_name ?? `검색 결과 ${index + 1}`),
       snippet: String(item.snippet ?? item.text ?? item.content ?? item.summary ?? ''),
-      source_name: String(item.source_name ?? item.transcript_title ?? item.file_name ?? '문서'),
-      source_type: normalizeSourceType(item.source_type ?? item.type),
+      source_name: String(
+        item.source_name ?? item.transcript_title ?? item.file_name ?? item.url ?? item.domain ?? '문서'
+      ),
+      source_type: normalizeSourceType(item.source_type ?? item.type ?? (item.url ? 'web' : undefined)),
       locations: normalizeLocations(item),
     }));
 
@@ -507,11 +534,28 @@ export function useScriptSearch(options: UseScriptSearchOptions = {}) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [scope, setScope] = useState<SearchScope>('internal');
   const [selectedSource, setSelectedSource] = useState<FileItem | null>(null);
-  const documents = options.documents ?? MOCK_FILES;
+  const [searchCache, setSearchCache] = useState<Record<string, SearchCacheEntry>>({});
+  const docScopeRef = useRef<SearchScope>('internal');
+  const documents = options.documents ?? [];
 
   const onTextLongPress = (text: string) => {
-    if (!text.trim()) return;
-    setSelectedText(text);
+    const query = text.trim();
+    if (!query) return;
+
+    const cached = searchCache[normalizeSearchCacheKey(query)];
+    if (cached) {
+      setSelectedText(cached.query);
+      setScope(cached.scope);
+      setSelectedSource(cached.source);
+      setResults(cached.results);
+      setLoading(false);
+      setShowPopup(false);
+      setShowDocSelector(false);
+      setShowResults(true);
+      return;
+    }
+
+    setSelectedText(query);
     setShowPopup(true);
   };
 
@@ -519,29 +563,35 @@ export function useScriptSearch(options: UseScriptSearchOptions = {}) {
     setScope(s);
     setShowPopup(false);
     if (s === 'internal' || s === 'both') {
+      docScopeRef.current = s;
       setShowDocSelector(true);
     } else {
+      setSelectedSource(null);
       runSearch(s, null);
     }
   };
 
   const onDocSelect = (file: FileItem) => {
+    const searchScope = docScopeRef.current;
     setSelectedSource(file);
+    setScope(searchScope);
     setShowDocSelector(false);
-    runSearch('internal', file);
+    runSearch(searchScope, file);
   };
 
   const runSearch = async (s: SearchScope, file: FileItem | null) => {
     setLoading(true);
     setShowResults(true);
     try {
+      const query = selectedText.trim();
+      const ragScope = toRagScope(s);
       const candidateIds =
         file !== null
           ? getTranscriptIds(file)
           : options.defaultTranscriptIds ?? documents.flatMap(getTranscriptIds);
       const transcriptIds = uniqueUuidList(candidateIds);
 
-      if (transcriptIds.length === 0) {
+      if (ragScope !== 'web' && transcriptIds.length === 0) {
         throw new Error('검색할 문서를 먼저 선택해주세요.');
       }
 
@@ -551,7 +601,8 @@ export function useScriptSearch(options: UseScriptSearchOptions = {}) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          query: selectedText.trim(),
+          query,
+          scope: ragScope,
           transcript_ids: transcriptIds,
           top_k: options.topK ?? 5,
         }),
@@ -565,6 +616,15 @@ export function useScriptSearch(options: UseScriptSearchOptions = {}) {
       const data = await res.json();
       const normalized = normalizeRagResponse(data);
       setResults(normalized);
+      setSearchCache((current) => ({
+        ...current,
+        [normalizeSearchCacheKey(query)]: {
+          query,
+          scope: s,
+          source: file,
+          results: normalized,
+        },
+      }));
     } catch (e) {
       console.error(e);
       setResults([]);
@@ -594,6 +654,7 @@ export function useScriptSearch(options: UseScriptSearchOptions = {}) {
   return {
     selectedText,
     documents,
+    searchedQueryKeys: Object.keys(searchCache),
     showPopup,
     showDocSelector,
     showResults,
