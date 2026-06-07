@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Modal,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -14,19 +15,25 @@ import { router } from 'expo-router';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { Colors } from '@/styles/theme';
 
-type SourceType = 'audio' | 'pdf' | 'ppt';
+type SourceType = 'audio' | 'pdf';
 type QuizStatus = 'correct' | 'wrong' | 'untested';
+type RelationColor = 'mint' | 'purple' | 'coral';
 
 type GraphNode = {
   id: string;
   label: string;
-  folder: string;
+  type: string;
   source: string;
   source_type: SourceType;
-  location: ({ type: 'timestamp'; value: string } | { type: 'page'; value: number })[];
+  timestamps: string[];
   context: string;
-  relations: { target: string; label: string; color: 'mint' | 'purple' | 'coral' }[];
+  relations: { target: string; label: string; color: RelationColor }[];
   quiz_status: QuizStatus;
+  quiz: {
+    question: string;
+    options: string[];
+    answer: number;
+  };
 };
 
 const STATUS_COLORS = {
@@ -36,110 +43,166 @@ const STATUS_COLORS = {
   selected: '#EF9F27',
 };
 
-const GRAPH_NODES: GraphNode[] = [
+const INITIAL_GRAPH_NODES: GraphNode[] = [
   {
     id: 'mitochondria',
     label: '미토콘드리아',
-    folder: '알고리즘 강의',
-    source: '알고리즘 강의 녹음',
+    type: '개념',
+    source: '알고리즘 강의',
     source_type: 'audio',
-    location: [
-      { type: 'timestamp', value: '00:12:34' },
-      { type: 'timestamp', value: '00:28:10' },
-    ],
-    context: '세포의 에너지 공장으로 ATP를 생산하는 핵심 소기관입니다.',
+    timestamps: ['00:12:34', '00:28:10', '00:41:55'],
+    context: '"미토콘드리아는 세포의 에너지 공장으로, ATP를 생산하는 핵심 소기관입니다."',
     relations: [
       { target: 'ATP', label: '생성', color: 'mint' },
-      { target: '세포 호흡', label: '관련', color: 'purple' },
+      { target: '세포 호흡', label: '연관', color: 'purple' },
       { target: '포도당', label: '분해', color: 'coral' },
     ],
     quiz_status: 'correct',
+    quiz: {
+      question: '미토콘드리아의 주요 기능은?',
+      options: ['ATP 생성', '단백질 합성', 'DNA 복제', '세포벽 형성'],
+      answer: 0,
+    },
   },
   {
     id: 'atp',
     label: 'ATP',
-    folder: '알고리즘 강의',
-    source: '알고리즘 강의 녹음',
+    type: '개념',
+    source: '알고리즘 강의',
     source_type: 'audio',
-    location: [{ type: 'timestamp', value: '00:13:20' }],
-    context: '세포에서 에너지 전달에 사용되는 대표적인 분자입니다.',
+    timestamps: ['00:13:20'],
+    context: '"ATP는 아데노신 삼인산으로, 세포의 에너지 화폐 역할을 합니다."',
     relations: [
       { target: '미토콘드리아', label: '생성됨', color: 'mint' },
       { target: '에너지', label: '공급', color: 'mint' },
     ],
     quiz_status: 'untested',
+    quiz: {
+      question: 'ATP의 풀네임은?',
+      options: ['아데노신 삼인산', '아데닌 삼인산', '아데노신 이인산', '아데닌 이인산'],
+      answer: 0,
+    },
   },
   {
     id: 'respiration',
     label: '세포 호흡',
-    folder: '알고리즘 강의',
-    source: '알고리즘 요약본.pdf',
-    source_type: 'pdf',
-    location: [{ type: 'page', value: 12 }],
-    context: '포도당을 분해해 ATP를 생성하는 일련의 대사 과정입니다.',
+    type: '개념',
+    source: '알고리즘 강의',
+    source_type: 'audio',
+    timestamps: ['00:25:44', '00:38:02'],
+    context: '"세포 호흡은 포도당을 분해하여 ATP를 생산하는 과정입니다."',
     relations: [
       { target: '미토콘드리아', label: '일어남', color: 'mint' },
       { target: '포도당', label: '사용', color: 'coral' },
     ],
     quiz_status: 'wrong',
+    quiz: {
+      question: '세포 호흡이 일어나는 장소는?',
+      options: ['핵', '리보솜', '미토콘드리아', '세포막'],
+      answer: 2,
+    },
   },
   {
     id: 'oxidation',
     label: '산화',
-    folder: '알고리즘 강의',
-    source: '강의 슬라이드.ppt',
-    source_type: 'ppt',
-    location: [{ type: 'page', value: 7 }],
-    context: '전자 전달 과정에서 산화 반응이 핵심적인 역할을 합니다.',
+    type: '개념',
+    source: '알고리즘 강의',
+    source_type: 'audio',
+    timestamps: ['00:29:11'],
+    context: '"산화적 인산화 과정에서 산화가 핵심적인 역할을 합니다."',
     relations: [{ target: '세포 호흡', label: '포함', color: 'purple' }],
     quiz_status: 'untested',
+    quiz: {
+      question: '산화란 무엇인가?',
+      options: ['전자를 잃는 과정', '전자를 얻는 과정', '수소를 얻는 과정', '산소를 잃는 과정'],
+      answer: 0,
+    },
   },
   {
     id: 'energy',
     label: '에너지',
-    folder: '3월 회의',
-    source: '마케팅 회의록',
+    type: '개념',
+    source: '3월 회의',
     source_type: 'audio',
-    location: [{ type: 'timestamp', value: '00:05:30' }],
-    context: '회의에서는 팀 에너지를 SNS 채널에 집중하기로 결정했습니다.',
-    relations: [{ target: 'ATP', label: '비유', color: 'mint' }],
+    timestamps: ['00:05:30'],
+    context: '"마케팅 에너지를 SNS 채널에 집중하기로 결정했습니다."',
+    relations: [{ target: 'ATP', label: '제공받음', color: 'mint' }],
     quiz_status: 'correct',
+    quiz: {
+      question: '에너지 대사의 핵심 분자는?',
+      options: ['DNA', 'ATP', 'RNA', '단백질'],
+      answer: 1,
+    },
   },
   {
     id: 'dna',
     label: 'DNA',
-    folder: '3월 회의',
-    source: '마케팅 회의록',
+    type: '개념',
+    source: '3월 회의',
     source_type: 'audio',
-    location: [{ type: 'timestamp', value: '00:08:15' }],
-    context: '복제와 정보 저장의 맥락에서 비교 대상으로 언급되었습니다.',
+    timestamps: ['00:08:15'],
+    context: '"DNA 복제 과정에서 에너지가 필요합니다."',
     relations: [{ target: '미토콘드리아', label: '저장됨', color: 'mint' }],
     quiz_status: 'untested',
+    quiz: {
+      question: 'DNA의 구성 단위는?',
+      options: ['아미노산', '뉴클레오타이드', '포도당', '지방산'],
+      answer: 1,
+    },
   },
   {
     id: 'glucose',
     label: '포도당',
-    folder: '마케팅 기획',
-    source: '기획 요약본.pdf',
+    type: '개념',
+    source: '마케팅',
     source_type: 'pdf',
-    location: [{ type: 'page', value: 3 }],
-    context: '세포 호흡에서 주요 기질로 사용되는 분자입니다.',
+    timestamps: ['00:31:00'],
+    context: '"포도당은 세포 호흡의 주요 기질로 사용됩니다."',
     relations: [
       { target: '세포 호흡', label: '기질', color: 'coral' },
       { target: '미토콘드리아', label: '분해됨', color: 'mint' },
     ],
     quiz_status: 'wrong',
+    quiz: {
+      question: '포도당의 화학식은?',
+      options: ['C6H12O6', 'C12H22O11', 'C6H6O6', 'C6H12O3'],
+      answer: 0,
+    },
   },
   {
     id: 'enzyme',
     label: '효소',
-    folder: '마케팅 기획',
-    source: '기획 요약본.pdf',
+    type: '개념',
+    source: '마케팅',
     source_type: 'pdf',
-    location: [{ type: 'page', value: 5 }],
-    context: '생화학 반응을 촉매하는 단백질입니다.',
+    timestamps: ['00:33:45'],
+    context: '"효소는 생화학 반응의 촉매 역할을 합니다."',
     relations: [{ target: '세포 호흡', label: '촉매', color: 'purple' }],
     quiz_status: 'untested',
+    quiz: {
+      question: '효소의 주성분은?',
+      options: ['탄수화물', '지질', '단백질', '핵산'],
+      answer: 2,
+    },
+  },
+  {
+    id: 'nadh',
+    label: 'NADH',
+    type: '개념',
+    source: '알고리즘 강의',
+    source_type: 'audio',
+    timestamps: ['00:36:22'],
+    context: '"NADH는 전자 전달계에서 중요한 역할을 합니다."',
+    relations: [
+      { target: '세포 호흡', label: '생성됨', color: 'purple' },
+      { target: '산화', label: '관여', color: 'coral' },
+    ],
+    quiz_status: 'correct',
+    quiz: {
+      question: 'NADH의 역할은?',
+      options: ['에너지 저장', '전자 운반', '단백질 합성', 'DNA 복제'],
+      answer: 1,
+    },
   },
 ];
 
@@ -147,21 +210,33 @@ const GRAPH_EDGES = [
   ['mitochondria', 'atp'],
   ['mitochondria', 'respiration'],
   ['mitochondria', 'oxidation'],
+  ['mitochondria', 'energy'],
+  ['mitochondria', 'dna'],
   ['atp', 'energy'],
   ['respiration', 'glucose'],
   ['respiration', 'enzyme'],
-  ['oxidation', 'enzyme'],
-  ['dna', 'mitochondria'],
+  ['oxidation', 'nadh'],
+  ['respiration', 'nadh'],
+  ['glucose', 'mitochondria'],
 ];
 
-const FILTERS = ['전체', '알고리즘 강의', '3월 회의', '마케팅 기획'];
+const FILTERS = ['전체', '알고리즘 강의', '3월 회의', '마케팅'];
 
 export default function GraphScreen() {
   const webViewRef = useRef<WebView>(null);
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(GRAPH_NODES[0]);
+  const [nodes, setNodes] = useState(INITIAL_GRAPH_NODES);
+  const [selectedId, setSelectedId] = useState(INITIAL_GRAPH_NODES[0].id);
   const [searchText, setSearchText] = useState('');
   const [filter, setFilter] = useState('전체');
-  const html = useMemo(() => buildGraphHtml(GRAPH_NODES, GRAPH_EDGES), []);
+  const [quizNode, setQuizNode] = useState<GraphNode | null>(null);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const selectedNode = nodes.find((node) => node.id === selectedId) ?? nodes[0] ?? null;
+  const html = useMemo(() => buildGraphHtml(nodes, GRAPH_EDGES), [nodes]);
+  const visibleNodeCount = nodes.filter((node) => {
+    const matchesFilter = filter === '전체' || node.source === filter;
+    const matchesSearch = !searchText || node.label.toLowerCase().includes(searchText.toLowerCase());
+    return matchesFilter && matchesSearch;
+  }).length;
 
   const inject = (script: string) => {
     webViewRef.current?.injectJavaScript(`${script}; true;`);
@@ -178,10 +253,29 @@ export default function GraphScreen() {
   };
 
   const handleMessage = (event: WebViewMessageEvent) => {
-    const payload = JSON.parse(event.nativeEvent.data) as { type: string; id?: string };
-    if (payload.type === 'node-selected' && payload.id) {
-      setSelectedNode(GRAPH_NODES.find((node) => node.id === payload.id) ?? null);
+    try {
+      const payload = JSON.parse(event.nativeEvent.data) as { type: string; id?: string };
+      if (payload.type === 'node-selected' && payload.id) {
+        setSelectedId(payload.id);
+      }
+    } catch {
+      // Ignore malformed WebView messages.
     }
+  };
+
+  const openQuiz = (node: GraphNode) => {
+    setSelectedAnswer(null);
+    setQuizNode(node);
+  };
+
+  const answerQuiz = (optionIndex: number) => {
+    if (!quizNode || selectedAnswer !== null) return;
+    const isCorrect = optionIndex === quizNode.quiz.answer;
+    setSelectedAnswer(optionIndex);
+    setNodes((prev) =>
+      prev.map((node) => (node.id === quizNode.id ? { ...node, quiz_status: isCorrect ? 'correct' : 'wrong' } : node)),
+    );
+    setQuizNode((prev) => (prev ? { ...prev, quiz_status: isCorrect ? 'correct' : 'wrong' } : prev));
   };
 
   return (
@@ -198,77 +292,90 @@ export default function GraphScreen() {
         </View>
       </View>
 
-      <View style={styles.searchBar}>
-        <Ionicons name="search" size={15} color="#bbb" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="개념 검색..."
-          placeholderTextColor="#bbb"
-          value={searchText}
-          onChangeText={updateSearch}
-        />
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-        {FILTERS.map((item) => (
-          <TouchableOpacity
-            key={item}
-            style={[styles.filterChip, filter === item && styles.filterChipActive]}
-            onPress={() => updateFilter(item)}
-          >
-            <Text style={[styles.filterText, filter === item && styles.filterTextActive]}>{item}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <View style={styles.legend}>
-        <LegendDot color={STATUS_COLORS.correct} label="맞춤" />
-        <LegendDot color={STATUS_COLORS.wrong} label="틀림" />
-        <LegendDot color={STATUS_COLORS.untested} label="미응시" />
-        <LegendDot color={STATUS_COLORS.selected} label="선택됨" />
-      </View>
-
-      <View style={styles.graphWrap}>
-        <WebView
-          ref={webViewRef}
-          style={styles.webView}
-          originWhitelist={['*']}
-          source={{ html }}
-          onMessage={handleMessage}
-          javaScriptEnabled
-          scrollEnabled={false}
-        />
-        <View style={styles.graphToolbar}>
-          <TouchableOpacity style={styles.graphButton} onPress={() => inject('window.zoomGraph(1.2)')}>
-            <Ionicons name="add" size={16} color="#555" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.graphButton} onPress={() => inject('window.zoomGraph(0.82)')}>
-            <Ionicons name="remove" size={16} color="#555" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.graphButton} onPress={() => inject('window.resetGraph()')}>
-            <Ionicons name="scan-outline" size={16} color="#555" />
-          </TouchableOpacity>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={15} color="#bbb" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="개념 검색..."
+            placeholderTextColor="#bbb"
+            value={searchText}
+            onChangeText={updateSearch}
+          />
         </View>
-      </View>
 
-      {selectedNode && <NodeDetailPanel node={selectedNode} />}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+          {FILTERS.map((item) => (
+            <TouchableOpacity
+              key={item}
+              style={[styles.filterChip, filter === item && styles.filterChipActive]}
+              onPress={() => updateFilter(item)}
+            >
+              <Text style={[styles.filterText, filter === item && styles.filterTextActive]}>{item}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <View style={styles.legend}>
+          <LegendDot color={STATUS_COLORS.correct} label="맞춤" />
+          <LegendDot color={STATUS_COLORS.wrong} label="틀림" />
+          <LegendDot color={STATUS_COLORS.untested} label="미응시" />
+          <LegendDot color={STATUS_COLORS.selected} label="선택됨" selected />
+        </View>
+
+        <View style={styles.graphWrap}>
+          <WebView
+            ref={webViewRef}
+            style={styles.webView}
+            originWhitelist={['*']}
+            source={{ html }}
+            onMessage={handleMessage}
+            javaScriptEnabled
+            scrollEnabled={false}
+          />
+          <View style={styles.graphToolbar}>
+            <TouchableOpacity style={styles.graphButton} onPress={() => inject('window.zoomGraph(1.2)')}>
+              <Ionicons name="add" size={16} color="#555" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.graphButton} onPress={() => inject('window.zoomGraph(0.8)')}>
+              <Ionicons name="remove" size={16} color="#555" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.graphButton} onPress={() => inject('window.resetGraph()')}>
+              <Ionicons name="scan-outline" size={16} color="#555" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.nodeCount}>
+            <Text style={styles.nodeCountText}>
+              노드 {visibleNodeCount} · 엣지 {GRAPH_EDGES.length}
+            </Text>
+          </View>
+        </View>
+
+        {selectedNode && <NodeDetailPanel node={selectedNode} onOpenQuiz={openQuiz} />}
+      </ScrollView>
+      <QuizModal
+        node={quizNode}
+        selectedAnswer={selectedAnswer}
+        onAnswer={answerQuiz}
+        onClose={() => setQuizNode(null)}
+      />
     </SafeAreaView>
   );
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
+function LegendDot({ color, label, selected = false }: { color: string; label: string; selected?: boolean }) {
   return (
     <View style={styles.legendItem}>
-      <View style={[styles.legendDot, { backgroundColor: color }]} />
+      <View style={[styles.legendDot, selected && styles.legendDotSelected, { backgroundColor: color }]} />
       <Text style={styles.legendText}>{label}</Text>
     </View>
   );
 }
 
-function NodeDetailPanel({ node }: { node: GraphNode }) {
+function NodeDetailPanel({ node, onOpenQuiz }: { node: GraphNode; onOpenQuiz: (node: GraphNode) => void }) {
   const statusMeta = {
     correct: { label: '퀴즈 통과', icon: 'checkmark-circle-outline' as const, style: styles.quizCorrect },
-    wrong: { label: '오답 · 복습 필요', icon: 'close-circle-outline' as const, style: styles.quizWrong },
+    wrong: { label: '오답 - 복습 필요', icon: 'close-circle-outline' as const, style: styles.quizWrong },
     untested: { label: '아직 미응시', icon: 'ellipse-outline' as const, style: styles.quizUntested },
   }[node.quiz_status];
 
@@ -280,12 +387,12 @@ function NodeDetailPanel({ node }: { node: GraphNode }) {
     <View style={styles.detailPanel}>
       <View style={styles.detailHeader}>
         <View style={styles.detailTitleRow}>
-          <View style={[styles.detailDot, { backgroundColor: statusColor(node.quiz_status) }]} />
+          <View style={[styles.detailDot, { backgroundColor: STATUS_COLORS.selected }]} />
           <Text style={styles.detailTitle} numberOfLines={1}>
             {node.label}
           </Text>
           <View style={styles.detailBadge}>
-            <Text style={styles.detailBadgeText}>개념</Text>
+            <Text style={styles.detailBadgeText}>{node.type}</Text>
           </View>
         </View>
         <View style={styles.detailActions}>
@@ -293,7 +400,10 @@ function NodeDetailPanel({ node }: { node: GraphNode }) {
             <Ionicons name="create-outline" size={13} color="#888" />
             <Text style={styles.actionText}>수정</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, styles.deleteButton]} onPress={() => Alert.alert('삭제', '노드 삭제 API 연결 지점입니다.')}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.deleteButton]}
+            onPress={() => Alert.alert('삭제', '노드 삭제 API 연결 지점입니다.')}
+          >
             <Ionicons name="trash-outline" size={13} color="#FF5A5A" />
           </TouchableOpacity>
         </View>
@@ -307,14 +417,12 @@ function NodeDetailPanel({ node }: { node: GraphNode }) {
         </TouchableOpacity>
 
         <View style={styles.divider} />
-        <DetailLabel icon={node.source_type === 'audio' ? 'time-outline' : 'reader-outline'} label={node.source_type === 'audio' ? '타임스탬프' : '페이지'} />
+        <DetailLabel icon="time-outline" label="타임스탬프" />
         <View style={styles.locationRow}>
-          {node.location.map((location) => (
-            <TouchableOpacity key={`${location.type}-${location.value}`} style={styles.locationChip} onPress={openSource}>
-              <Ionicons name={location.type === 'timestamp' ? 'play-outline' : 'document-outline'} size={11} color={Colors.mint} />
-              <Text style={styles.locationText}>
-                {location.type === 'timestamp' ? location.value : `${location.value}p`}
-              </Text>
+          {node.timestamps.map((timestamp) => (
+            <TouchableOpacity key={timestamp} style={styles.locationChip} onPress={openSource}>
+              <Ionicons name="play-outline" size={11} color={Colors.mint} />
+              <Text style={styles.locationText}>{timestamp}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -333,8 +441,10 @@ function NodeDetailPanel({ node }: { node: GraphNode }) {
               key={`${relation.target}-${relation.label}`}
               style={[styles.relationChip, relation.color === 'purple' && styles.relationPurple, relation.color === 'coral' && styles.relationCoral]}
             >
-              <Text style={[styles.relationText, relation.color === 'purple' && styles.relationTextPurple, relation.color === 'coral' && styles.relationTextCoral]}>
-                {relation.target} · {relation.label}
+              <Text
+                style={[styles.relationText, relation.color === 'purple' && styles.relationTextPurple, relation.color === 'coral' && styles.relationTextCoral]}
+              >
+                {relation.target} → {relation.label}
               </Text>
             </View>
           ))}
@@ -346,8 +456,76 @@ function NodeDetailPanel({ node }: { node: GraphNode }) {
           <Ionicons name={statusMeta.icon} size={15} color={statusColor(node.quiz_status)} />
           <Text style={[styles.quizStatusText, { color: statusColor(node.quiz_status) }]}>{statusMeta.label}</Text>
         </View>
+
+        <TouchableOpacity
+          style={[styles.quizButton, node.quiz_status !== 'untested' && styles.quizRetryButton]}
+          onPress={() => onOpenQuiz(node)}
+        >
+          <Ionicons name="bulb-outline" size={14} color={node.quiz_status === 'untested' ? Colors.white : '#555'} />
+          <Text style={[styles.quizButtonText, node.quiz_status !== 'untested' && styles.quizRetryButtonText]}>
+            {node.quiz_status === 'untested' ? '퀴즈 풀기' : '다시 풀기'}
+          </Text>
+        </TouchableOpacity>
       </View>
     </View>
+  );
+}
+
+function QuizModal({
+  node,
+  selectedAnswer,
+  onAnswer,
+  onClose,
+}: {
+  node: GraphNode | null;
+  selectedAnswer: number | null;
+  onAnswer: (optionIndex: number) => void;
+  onClose: () => void;
+}) {
+  const isAnswered = selectedAnswer !== null;
+  const isCorrect = node && selectedAnswer === node.quiz.answer;
+
+  return (
+    <Modal transparent visible={Boolean(node)} animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.quizSheet}>
+          <View style={styles.quizHandle} />
+          <Text style={styles.quizTitle}>{node?.label}</Text>
+          <Text style={styles.quizSource}>출처: {node?.source}</Text>
+          <View style={styles.quizQuestionBox}>
+            <Text style={styles.quizQuestion}>{node?.quiz.question}</Text>
+          </View>
+          <View style={styles.quizOptions}>
+            {node?.quiz.options.map((option, index) => {
+              const correctOption = isAnswered && index === node.quiz.answer;
+              const wrongOption = isAnswered && selectedAnswer === index && selectedAnswer !== node.quiz.answer;
+              return (
+                <TouchableOpacity
+                  key={option}
+                  style={[styles.quizOption, correctOption && styles.quizOptionCorrect, wrongOption && styles.quizOptionWrong]}
+                  onPress={() => onAnswer(index)}
+                  disabled={isAnswered}
+                >
+                  <Text style={[styles.quizOptionText, correctOption && styles.quizOptionTextCorrect, wrongOption && styles.quizOptionTextWrong]}>
+                    {String.fromCharCode(9312 + index)} {option}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {isAnswered && node ? (
+            <View style={[styles.quizResult, isCorrect ? styles.quizResultCorrect : styles.quizResultWrong]}>
+              <Text style={[styles.quizResultText, isCorrect ? styles.quizResultTextCorrect : styles.quizResultTextWrong]}>
+                {isCorrect ? '정답이에요! 그래프에 반영됐습니다.' : `오답이에요. 정답은 "${node.quiz.options[node.quiz.answer]}"입니다.`}
+              </Text>
+            </View>
+          ) : null}
+          <TouchableOpacity style={styles.quizCloseButton} onPress={onClose}>
+            <Text style={styles.quizCloseText}>{isAnswered ? '확인 후 닫기' : '닫기'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -374,9 +552,8 @@ function buildGraphHtml(nodes: GraphNode[], edges: string[][]) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
 <style>
 html,body{margin:0;padding:0;background:#fff;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
-canvas{display:block;width:100vw;height:260px;background:#fff;}
+canvas{display:block;width:100vw;height:200px;background:#fff;}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/d3-force@3"></script>
 </head>
 <body>
 <canvas id="graph"></canvas>
@@ -386,28 +563,56 @@ const DATA=${graph};
 const canvas=document.getElementById('graph');
 const ctx=canvas.getContext('2d');
 let nodes=DATA.nodes.map(n=>({...n}));
-let links=DATA.edges.map(e=>({source:e[0],target:e[1]}));
+let links=DATA.edges.map(([source,target])=>({source,target}));
 let selectedId=nodes[0]?.id;
 let filter='전체';
 let search='';
 let scale=1;
-let simulation;
+let positions=[];
 
 function sizeCanvas(){
   const ratio=window.devicePixelRatio||1;
   const w=window.innerWidth;
-  const h=260;
+  const h=200;
   canvas.width=w*ratio;
   canvas.height=h*ratio;
   canvas.style.width=w+'px';
   canvas.style.height=h+'px';
   ctx.setTransform(ratio,0,0,ratio,0,0);
+  layoutNodes();
+  draw();
 }
 
 function visibleNode(n){
-  const matchFilter=filter==='전체'||n.folder===filter;
+  const matchFilter=filter==='전체'||n.source===filter;
   const matchSearch=!search||n.label.toLowerCase().includes(search.toLowerCase());
   return matchFilter&&matchSearch;
+}
+
+function visibleIds(){
+  return nodes.filter(visibleNode).map(n=>n.id);
+}
+
+function layoutNodes(){
+  const w=canvas.width/(window.devicePixelRatio||1);
+  const h=canvas.height/(window.devicePixelRatio||1);
+  const ids=visibleIds();
+  const cx=w*0.5;
+  const cy=h*0.46;
+  const r=Math.min(w,h)*0.33;
+  positions=nodes.map((n)=>{
+    if(!ids.includes(n.id)) return {id:n.id,x:-100,y:-100,visible:false};
+    if(n.id==='mitochondria') return {id:n.id,x:cx,y:cy,visible:true};
+    const otherIds=ids.filter(id=>id!=='mitochondria');
+    const fi=otherIds.indexOf(n.id);
+    const total=Math.max(otherIds.length,1);
+    const angle=(fi/total)*Math.PI*2-Math.PI/2;
+    return {id:n.id,x:cx+r*Math.cos(angle),y:cy+r*Math.sin(angle),visible:true};
+  });
+}
+
+function pos(id){
+  return positions.find(p=>p.id===id);
 }
 
 function colorFor(n){
@@ -415,22 +620,6 @@ function colorFor(n){
   if(n.quiz_status==='correct') return STATUS.correct;
   if(n.quiz_status==='wrong') return STATUS.wrong;
   return STATUS.untested;
-}
-
-function start(){
-  sizeCanvas();
-  if(window.d3&&d3.forceSimulation){
-    simulation=d3.forceSimulation(nodes)
-      .force('link',d3.forceLink(links).id(d=>d.id).distance(68).strength(0.7))
-      .force('charge',d3.forceManyBody().strength(-180))
-      .force('center',d3.forceCenter(window.innerWidth/2,122))
-      .force('collide',d3.forceCollide().radius(34))
-      .on('tick',draw);
-  }else{
-    const cx=window.innerWidth/2, cy=122, r=86;
-    nodes.forEach((n,i)=>{n.x=cx+r*Math.cos(i/nodes.length*Math.PI*2);n.y=cy+r*Math.sin(i/nodes.length*Math.PI*2);});
-    draw();
-  }
 }
 
 function draw(){
@@ -442,41 +631,42 @@ function draw(){
   ctx.scale(scale,scale);
 
   links.forEach(l=>{
-    const s=typeof l.source==='object'?l.source:nodes.find(n=>n.id===l.source);
-    const t=typeof l.target==='object'?l.target:nodes.find(n=>n.id===l.target);
-    if(!s||!t||!visibleNode(s)||!visibleNode(t)) return;
-    const strong=s.id===selectedId||t.id===selectedId;
+    const s=pos(l.source);
+    const t=pos(l.target);
+    if(!s?.visible||!t?.visible) return;
+    const strong=l.source===selectedId||l.target===selectedId;
     ctx.beginPath();
     ctx.moveTo(s.x,s.y);
     ctx.lineTo(t.x,t.y);
     ctx.strokeStyle=strong?'rgba(239,159,39,0.55)':'#e8f4f0';
-    ctx.lineWidth=strong?1.8:0.9;
+    ctx.lineWidth=strong?1.5:0.8;
     ctx.stroke();
   });
 
   nodes.forEach(n=>{
-    if(!visibleNode(n)) return;
+    const p=pos(n.id);
+    if(!p?.visible) return;
     const selected=n.id===selectedId;
-    const radius=selected?17:11;
+    const radius=selected?17:10;
     const c=colorFor(n);
     ctx.beginPath();
-    ctx.arc(n.x,n.y,radius,0,Math.PI*2);
-    ctx.fillStyle=selected?c:c+'66';
+    ctx.arc(p.x,p.y,radius,0,Math.PI*2);
+    ctx.fillStyle=selected?c:c+'55';
     ctx.fill();
     ctx.strokeStyle=c;
-    ctx.lineWidth=selected?2.6:1.3;
+    ctx.lineWidth=selected?2.5:1.2;
     ctx.stroke();
     if(selected){
       ctx.beginPath();
-      ctx.arc(n.x,n.y,radius+5,0,Math.PI*2);
-      ctx.strokeStyle='rgba(239,159,39,0.26)';
-      ctx.lineWidth=4;
+      ctx.arc(p.x,p.y,radius+4,0,Math.PI*2);
+      ctx.strokeStyle='rgba(239,159,39,0.25)';
+      ctx.lineWidth=3;
       ctx.stroke();
     }
     ctx.fillStyle='#444';
     ctx.font=(selected?'600 ':'')+(selected?'11':'9')+'px sans-serif';
     ctx.textAlign='center';
-    ctx.fillText(n.label,n.x,n.y+radius+13);
+    ctx.fillText(n.label,p.x,p.y+radius+12);
   });
   ctx.restore();
 }
@@ -488,9 +678,10 @@ canvas.addEventListener('click',event=>{
   const x=(event.clientX-rect.left-w*(1-scale)/2)/scale;
   const y=(event.clientY-rect.top-h*(1-scale)/2)/scale;
   for(const n of nodes){
-    if(!visibleNode(n)) continue;
-    const radius=n.id===selectedId?22:17;
-    if(Math.hypot(x-n.x,y-n.y)<=radius){
+    const p=pos(n.id);
+    if(!p?.visible) continue;
+    const radius=n.id===selectedId?25:18;
+    if(Math.hypot(x-p.x,y-p.y)<=radius){
       selectedId=n.id;
       window.ReactNativeWebView.postMessage(JSON.stringify({type:'node-selected',id:n.id}));
       draw();
@@ -499,12 +690,12 @@ canvas.addEventListener('click',event=>{
   }
 });
 
-window.applySearch=function(value){search=value||'';draw();};
-window.applyFilter=function(value){filter=value||'전체';if(simulation){simulation.alpha(0.8).restart();}draw();};
-window.zoomGraph=function(next){scale=Math.max(0.55,Math.min(2.4,scale*next));draw();};
-window.resetGraph=function(){scale=1;filter=filter||'전체';if(simulation){simulation.alpha(1).restart();}draw();};
-window.addEventListener('resize',start);
-start();
+window.applySearch=function(value){search=value||'';layoutNodes();draw();};
+window.applyFilter=function(value){filter=value||'전체';layoutNodes();draw();};
+window.zoomGraph=function(next){scale=Math.max(0.5,Math.min(2.5,scale*next));draw();};
+window.resetGraph=function(){scale=1;layoutNodes();draw();};
+window.addEventListener('resize',sizeCanvas);
+sizeCanvas();
 </script>
 </body>
 </html>`;
@@ -512,6 +703,8 @@ start();
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 96 },
   header: {
     backgroundColor: Colors.white,
     borderBottomWidth: 0.5,
@@ -570,9 +763,10 @@ const styles = StyleSheet.create({
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendDotSelected: { borderWidth: 1.5, borderColor: '#BA7517' },
   legendText: { fontSize: 10, color: '#888' },
   graphWrap: {
-    height: 260,
+    height: 200,
     marginHorizontal: 14,
     borderRadius: 16,
     borderWidth: 0.5,
@@ -592,6 +786,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  nodeCount: {
+    position: 'absolute',
+    bottom: 10,
+    left: 12,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#eee',
+    backgroundColor: Colors.white,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  nodeCountText: { fontSize: 11, color: '#aaa' },
   detailPanel: {
     marginHorizontal: 14,
     marginTop: 8,
@@ -698,4 +904,86 @@ const styles = StyleSheet.create({
   quizWrong: { backgroundColor: '#FCEBEB' },
   quizUntested: { backgroundColor: '#F1EFE8' },
   quizStatusText: { fontSize: 11, fontWeight: '500' },
+  quizButton: {
+    width: '100%',
+    borderRadius: 10,
+    backgroundColor: Colors.mint,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  quizRetryButton: {
+    backgroundColor: Colors.bg,
+    borderWidth: 0.5,
+    borderColor: '#e0f0eb',
+  },
+  quizButtonText: { fontSize: 12, fontWeight: '500', color: Colors.white },
+  quizRetryButtonText: { color: '#555' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  quizSheet: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 32,
+  },
+  quizHandle: {
+    width: 36,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#e0e0e0',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  quizTitle: { fontSize: 13, fontWeight: '600', color: '#222', marginBottom: 4 },
+  quizSource: { fontSize: 11, color: '#aaa', marginBottom: 16 },
+  quizQuestionBox: {
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#e0f0eb',
+    backgroundColor: Colors.bg,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+  },
+  quizQuestion: { fontSize: 13, color: '#222', lineHeight: 20 },
+  quizOptions: { gap: 7, marginBottom: 14 },
+  quizOption: {
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#ddd',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  quizOptionCorrect: { borderColor: Colors.mint, backgroundColor: Colors.mintLight },
+  quizOptionWrong: { borderColor: '#E24B4A', backgroundColor: '#FCEBEB' },
+  quizOptionText: { fontSize: 12, color: '#333' },
+  quizOptionTextCorrect: { color: '#0F6E56', fontWeight: '500' },
+  quizOptionTextWrong: { color: '#A32D2D', fontWeight: '500' },
+  quizResult: {
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  quizResultCorrect: { backgroundColor: Colors.mintLight },
+  quizResultWrong: { backgroundColor: '#FCEBEB' },
+  quizResultText: { fontSize: 12 },
+  quizResultTextCorrect: { color: '#0F6E56' },
+  quizResultTextWrong: { color: '#A32D2D' },
+  quizCloseButton: {
+    width: '100%',
+    borderRadius: 10,
+    backgroundColor: '#f5f5f5',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  quizCloseText: { fontSize: 13, color: '#555', fontWeight: '500' },
 });

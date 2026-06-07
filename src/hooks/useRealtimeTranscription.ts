@@ -35,7 +35,7 @@ export interface UseRealtimeTranscriptionReturn {
   start: () => Promise<void>;
   pause: () => void;
   resume: () => void;
-  stop: () => Promise<void>;
+  stop: () => Promise<RealtimeTranscriptSegment[]>;
 }
 
 type PermissionResponse = {
@@ -272,9 +272,11 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
 
   const handleSummary = useCallback(
     (message: Extract<RealtimeServerMessage, { type: 'summary' }>) => {
+      const explicitSegmentIndex = message.segment_index;
+      const hasExplicitSegmentIndex = typeof explicitSegmentIndex === 'number';
       const segmentIndex =
-        typeof message.segment_index === 'number'
-          ? message.segment_index
+        hasExplicitSegmentIndex
+          ? explicitSegmentIndex
           : summariesRef.current.length;
       const startFinalIndex =
         typeof message.start_final_index === 'number' ? message.start_final_index : -1;
@@ -305,7 +307,30 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
         timeRange,
       };
 
-      summariesRef.current = [...summariesRef.current, chunk];
+      const existingIndex = summariesRef.current.findIndex((current) => {
+        if (hasExplicitSegmentIndex && current.segmentIndex === segmentIndex) return true;
+        if (
+          hasValidRange &&
+          current.startFinalIndex === startFinalIndex &&
+          current.endFinalIndex === endFinalIndex
+        ) {
+          return true;
+        }
+        if (
+          !hasExplicitSegmentIndex &&
+          !hasValidRange &&
+          current.summary === chunk.summary &&
+          current.fullText === chunk.fullText
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      summariesRef.current =
+        existingIndex >= 0
+          ? summariesRef.current.map((current, index) => (index === existingIndex ? chunk : current))
+          : [...summariesRef.current, chunk];
       setSummaries([...summariesRef.current]);
 
       if (displayCovered.length > 0) {
