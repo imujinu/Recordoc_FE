@@ -88,6 +88,28 @@ export type TranscriptSummaryResponse = {
   contexts?: TranscriptSummaryContext[] | null;
 };
 
+export type FileTranscriptSegmentResponse = {
+  segment_index?: number | null;
+  start_seconds?: number | string | null;
+  end_seconds?: number | string | null;
+  speaker_label?: string | null;
+  text?: string | null;
+  confidence?: number | string | null;
+  source_type?: string | null;
+  source_page_start?: number | null;
+  source_page_end?: number | null;
+  source_slide_start?: number | null;
+  source_slide_end?: number | null;
+  source_start_seconds?: number | string | null;
+  source_end_seconds?: number | string | null;
+};
+
+export type FileTranscriptResponse = {
+  transcript_id: string;
+  full_text?: string | null;
+  segments?: FileTranscriptSegmentResponse[] | null;
+};
+
 export type FileListItem = {
   transcript_id: string;
   type?: 'file';
@@ -105,7 +127,6 @@ export type FileListItem = {
 export type FileDetailResponse = FileListItem & {
   source_type?: string | null;
   error_message?: string | null;
-  full_text?: string | null;
   duration_seconds?: number | null;
   segment_count?: number | null;
   chunk_count?: number | null;
@@ -220,10 +241,10 @@ export function fileDetailToSummaryResponse(file: FileDetailResponse): Transcrip
     title: file.summary?.title ?? file.title,
     status: getProcessStatus(file),
     summary: file.summary?.summary ?? null,
-    full_text: file.summary?.full_text ?? file.full_text,
-    fullText: file.summary?.fullText ?? file.full_text,
-    transcript: file.summary?.transcript ?? file.full_text,
-    text: file.summary?.text ?? file.full_text,
+    full_text: file.summary?.full_text ?? null,
+    fullText: file.summary?.fullText ?? null,
+    transcript: file.summary?.transcript ?? null,
+    text: file.summary?.text ?? null,
     keywords: file.summary?.keywords ?? [],
     segments: file.summary?.segments ?? null,
     chunks: file.summary?.chunks ?? file.summary?.summaries ?? null,
@@ -327,6 +348,19 @@ export async function getFileDetail(transcriptId: string, signal?: AbortSignal):
   }
 
   return response.json() as Promise<FileDetailResponse>;
+}
+
+export async function getFileTranscript(transcriptId: string, signal?: AbortSignal): Promise<FileTranscriptResponse> {
+  const response = await authFetch(`${API_BASE_URL}/files/${encodeURIComponent(transcriptId)}/transcript`, {
+    method: 'GET',
+    signal,
+  });
+
+  if (!response.ok) {
+    throw await readError(response, '전체 원문을 불러오지 못했습니다.');
+  }
+
+  return response.json() as Promise<FileTranscriptResponse>;
 }
 
 export async function listFiles(): Promise<FileListItem[]> {

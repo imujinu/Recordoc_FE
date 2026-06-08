@@ -5,6 +5,7 @@ import {
   type AudioDataEvent,
   type RecordingConfig,
 } from '@siteed/audio-studio';
+
 import { WS_BASE_URL } from '@/constants/config';
 import { getAccessToken, refreshStoredAccessToken } from '@/api/auth';
 
@@ -113,7 +114,8 @@ function audioDataToPCM16Buffer(event: AudioDataEvent): ArrayBuffer {
   const { data } = event;
 
   if (typeof data === 'string') {
-    return base64ToArrayBuffer(data);
+     const buffer = base64ToArrayBuffer(data);
+    return extractPcmFromWav(buffer); // 추가
   }
 
   if (data instanceof Int16Array) {
@@ -365,7 +367,16 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
     },
     [handleSummary, handleTranscript]
   );
-
+  function amplifyPCM16(buffer: ArrayBuffer, gain: number): ArrayBuffer {
+  const input = new Int16Array(buffer);
+  const output = new Int16Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    const amplified = input[i] * gain;
+    // 클리핑 방지
+    output[i] = Math.max(-32768, Math.min(32767, amplified));
+  }
+  return output.buffer;
+}
   const sendAudioStream = useCallback(async (event: AudioDataEvent) => {
     if (!audioStreamEnabledRef.current || isPausedRef.current || !isOpen(wsRef.current)) {
       return;
@@ -383,8 +394,14 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
         );
         firstAudioChunkLoggedRef.current = true;
       }
+      const raw = audioDataToPCM16Buffer(event);
+    const amplified = amplifyPCM16(raw, 10.0);
 
-      wsRef.current.send(buffer);
+    const samples = new Int16Array(amplified);
+    const max = Math.max(...Array.from(samples).map(Math.abs));
+    console.log(`[Audio] max amplitude: ${max}`);
+
+      wsRef.current.send(amplified);
     } catch (error) {
       console.warn('[Realtime] PCM 스트림 전송 오류:', error);
     }
@@ -471,6 +488,16 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
       encoding: 'pcm_16bit',
       interval: 250,
       keepAwake: true,
+       streamFormat: 'float32',
+      android: {
+    audioFocusStrategy: 'communication', // 추가
+  },onRecordingInterrupted: (event) => {
+    console.warn('[Realtime] 녹음 중단:', event);
+    if (event.reason === 'recordingStopped' && !event.isPaused) {
+      // 자동 재시작 시도
+      resumeRecording().catch(() => {});
+    }
+  },
       output: {
         primary: { enabled: false },
       },
