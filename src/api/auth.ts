@@ -145,11 +145,11 @@ export async function login(email: string, password: string): Promise<void> {
   await storeAuthTokens(data);
 }
 
-export async function loginWithGoogleIdToken(idToken: string): Promise<void> {
+export async function loginWithGoogleAuthCode(code: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/auth/oauth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: idToken }),
+    body: JSON.stringify({ code }),
   });
 
   const data = (await res.json().catch(() => ({}))) as TokenResponse;

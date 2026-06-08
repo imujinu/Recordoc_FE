@@ -13,7 +13,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   cancelFileProcess,
-  getTranscriptSummary,
+  fileDetailToSummaryResponse,
+  getFileDetail,
+  getProcessStatus,
   processFile,
   type ProcessStatus,
   type TranscriptSummaryContext,
@@ -26,7 +28,7 @@ type PdfTab = 'summary' | 'text' | 'qa';
 type ChatMessage = { role: 'user' | 'ai'; text: string };
 type PdfStatus = ProcessStatus;
 
-const VALID_STATUSES: PdfStatus[] = ['pending', 'uploaded', 'processing', 'completed', 'failed'];
+const VALID_STATUSES: PdfStatus[] = ['uploaded', 'processing', 'completed', 'failed', 'cancelled'];
 const TABS: { key: PdfTab; label: string }[] = [
   { key: 'summary', label: '요약' },
   { key: 'text', label: '전체 텍스트' },
@@ -39,8 +41,8 @@ function getSearchParam(value: string | string[] | undefined): string {
 }
 
 function normalizeStatus(status: string | undefined): PdfStatus {
-  if (status === 'canceled' || status === 'cancelled') return 'uploaded';
-  return VALID_STATUSES.includes(status as PdfStatus) ? (status as PdfStatus) : 'pending';
+  if (status === 'canceled' || status === 'cancelled') return 'cancelled';
+  return VALID_STATUSES.includes(status as PdfStatus) ? (status as PdfStatus) : 'uploaded';
 }
 
 function cleanText(value: unknown): string {
@@ -168,8 +170,12 @@ export default function PDFScreen() {
     setSummaryLoading(true);
     setSummaryError('');
 
-    getTranscriptSummary(transcriptId, abortController.signal)
-      .then((data) => setSummaryData(data))
+    getFileDetail(transcriptId, abortController.signal)
+      .then((data) => {
+        const nextStatus = getProcessStatus(data);
+        setPdfStatus(nextStatus);
+        setSummaryData(nextStatus === 'completed' ? fileDetailToSummaryResponse(data) : null);
+      })
       .catch((error) => {
         if (abortController.signal.aborted) return;
         setSummaryError(error instanceof Error ? error.message : '문서 데이터를 불러오지 못했습니다.');
@@ -196,7 +202,7 @@ export default function PDFScreen() {
 
     try {
       const result = await processFile(transcriptId, abortController.signal);
-      setPdfStatus(normalizeStatus(result.status));
+      setPdfStatus(getProcessStatus(result));
     } catch (error) {
       if (abortController.signal.aborted) {
         setPdfStatus(statusBeforeProcessingRef.current);
@@ -215,7 +221,7 @@ export default function PDFScreen() {
     setCanceling(true);
     try {
       const result = await cancelFileProcess(transcriptId);
-      const nextStatus = normalizeStatus(result.status);
+      const nextStatus = getProcessStatus(result);
       statusBeforeProcessingRef.current = nextStatus;
       processAbortRef.current?.abort();
       processAbortRef.current = null;

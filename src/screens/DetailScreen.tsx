@@ -13,7 +13,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   cancelFileProcess,
-  getTranscriptSummary,
+  fileDetailToSummaryResponse,
+  getFileDetail,
+  getProcessStatus,
   processFile,
   type ProcessStatus,
   type TranscriptSummaryContext,
@@ -29,7 +31,7 @@ type ChatMessage = { role: 'user' | 'ai'; text: string };
 type Template = '회의록' | '보고서' | '강의노트' | '할일목록';
 type Format = 'PDF' | 'Word' | '텍스트';
 
-const VALID_STATUSES: DetailStatus[] = ['pending', 'uploaded', 'processing', 'completed', 'failed'];
+const VALID_STATUSES: DetailStatus[] = ['uploaded', 'processing', 'completed', 'failed', 'cancelled'];
 const TABS: { key: DetailTab; label: string }[] = [
   { key: 'summary', label: '요약' },
   { key: 'script', label: '전체 텍스트' },
@@ -54,8 +56,8 @@ function getSearchParam(value: string | string[] | undefined): string {
 }
 
 function normalizeStatus(status: string | undefined): DetailStatus {
-  if (status === 'canceled' || status === 'cancelled') return 'uploaded';
-  return VALID_STATUSES.includes(status as DetailStatus) ? (status as DetailStatus) : 'pending';
+  if (status === 'canceled' || status === 'cancelled') return 'cancelled';
+  return VALID_STATUSES.includes(status as DetailStatus) ? (status as DetailStatus) : 'uploaded';
 }
 
 function cleanText(value: unknown): string {
@@ -214,8 +216,12 @@ export default function DetailScreen() {
     setSummaryLoading(true);
     setSummaryError('');
 
-    getTranscriptSummary(transcriptId, abortController.signal)
-      .then((data) => setSummaryData(data))
+    getFileDetail(transcriptId, abortController.signal)
+      .then((data) => {
+        const nextStatus = getProcessStatus(data);
+        setDetailStatus(nextStatus);
+        setSummaryData(nextStatus === 'completed' ? fileDetailToSummaryResponse(data) : null);
+      })
       .catch((error) => {
         if (abortController.signal.aborted) return;
         setSummaryError(error instanceof Error ? error.message : '요약 데이터를 불러오지 못했습니다.');
@@ -242,7 +248,7 @@ export default function DetailScreen() {
 
     try {
       const result = await processFile(transcriptId, abortController.signal);
-      setDetailStatus(normalizeStatus(result.status));
+      setDetailStatus(getProcessStatus(result));
     } catch (error) {
       if (abortController.signal.aborted) {
         setDetailStatus(statusBeforeProcessingRef.current);
@@ -261,7 +267,7 @@ export default function DetailScreen() {
     setCanceling(true);
     try {
       const result = await cancelFileProcess(transcriptId);
-      const nextStatus = normalizeStatus(result.status);
+      const nextStatus = getProcessStatus(result);
       statusBeforeProcessingRef.current = nextStatus;
       processAbortRef.current?.abort();
       processAbortRef.current = null;

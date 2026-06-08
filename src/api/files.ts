@@ -18,7 +18,7 @@ export type FileUploadResponse = {
   chunk_count?: number;
 };
 
-export type ProcessStatus = 'pending' | 'uploaded' | 'processing' | 'completed' | 'failed';
+export type ProcessStatus = 'uploaded' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 export type FileProcessResponse = {
   transcript_id: string;
@@ -102,6 +102,17 @@ export type FileListItem = {
   created_at?: string | null;
 };
 
+export type FileDetailResponse = FileListItem & {
+  source_type?: string | null;
+  error_message?: string | null;
+  full_text?: string | null;
+  duration_seconds?: number | null;
+  segment_count?: number | null;
+  chunk_count?: number | null;
+  updated_at?: string | null;
+  summary?: TranscriptSummaryResponse | null;
+};
+
 export type FolderWorkItem = {
   id: string;
   type: 'folder';
@@ -183,19 +194,42 @@ export function inferFileKind(file: Pick<FileListItem, 'original_filename' | 'fi
 }
 
 export function getProcessStatus(file: Pick<FileListItem, 'status' | 'content_status' | 'index_status'>): ProcessStatus {
-  if (file.status === 'failed' || file.content_status === 'failed' || file.index_status === 'failed') {
-    return 'failed';
+  const status = file.status?.trim().toLowerCase();
+  const contentStatus = file.content_status?.trim().toLowerCase();
+  const indexStatus = file.index_status?.trim().toLowerCase();
+  const hasDetailedStatus = Boolean(contentStatus || indexStatus);
+
+  if (contentStatus === 'failed' || indexStatus === 'failed') return 'failed';
+  if (status === 'cancelled' || status === 'canceled' || indexStatus === 'cancelled' || indexStatus === 'canceled') {
+    return 'cancelled';
   }
-  if (file.status === 'processing' || file.content_status === 'processing' || file.index_status === 'processing') {
-    return 'processing';
-  }
-  if (file.status === 'completed' || (file.content_status === 'completed' && file.index_status === 'completed')) {
-    return 'completed';
-  }
-  if (file.status === 'uploaded') {
-    return 'uploaded';
-  }
-  return 'pending';
+  if (contentStatus === 'processing' || indexStatus === 'processing') return 'processing';
+  if (contentStatus === 'completed' && indexStatus === 'completed') return 'completed';
+  if (!hasDetailedStatus && (status === 'completed' || status === 'done')) return 'completed';
+  if (contentStatus === 'uploaded' || status === 'uploaded') return 'uploaded';
+  return 'uploaded';
+}
+
+export function fileDetailToSummaryResponse(file: FileDetailResponse): TranscriptSummaryResponse {
+  return {
+    ...file.summary,
+    transcript_id: file.summary?.transcript_id ?? file.transcript_id,
+    summary_id: file.summary?.summary_id,
+    persona_id: file.summary?.persona_id ?? null,
+    overview: file.summary?.overview ?? null,
+    title: file.summary?.title ?? file.title,
+    status: getProcessStatus(file),
+    summary: file.summary?.summary ?? null,
+    full_text: file.summary?.full_text ?? file.full_text,
+    fullText: file.summary?.fullText ?? file.full_text,
+    transcript: file.summary?.transcript ?? file.full_text,
+    text: file.summary?.text ?? file.full_text,
+    keywords: file.summary?.keywords ?? [],
+    segments: file.summary?.segments ?? null,
+    chunks: file.summary?.chunks ?? file.summary?.summaries ?? null,
+    summaries: file.summary?.summaries ?? file.summary?.chunks ?? null,
+    contexts: file.summary?.contexts ?? [],
+  };
 }
 
 function getErrorMessage(body: ApiErrorBody, fallback: string): string {
@@ -280,6 +314,19 @@ export async function getTranscriptSummary(
   }
 
   return response.json() as Promise<TranscriptSummaryResponse>;
+}
+
+export async function getFileDetail(transcriptId: string, signal?: AbortSignal): Promise<FileDetailResponse> {
+  const response = await authFetch(`${API_BASE_URL}/files/${encodeURIComponent(transcriptId)}`, {
+    method: 'GET',
+    signal,
+  });
+
+  if (!response.ok) {
+    throw await readError(response, '파일 상세 정보를 불러오지 못했습니다.');
+  }
+
+  return response.json() as Promise<FileDetailResponse>;
 }
 
 export async function listFiles(): Promise<FileListItem[]> {

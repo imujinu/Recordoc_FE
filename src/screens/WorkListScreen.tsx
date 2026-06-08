@@ -44,10 +44,12 @@ function getDisplayTitle(file: FileWorkItem): string {
 }
 
 function getStatusLabel(status?: string | null): string {
-  if (!status) return '완료';
+  if (!status) return '업로드됨';
   if (status === 'completed' || status === 'done') return '완료';
   if (status === 'processing') return '처리 중';
   if (status === 'failed') return '실패';
+  if (status === 'uploaded') return '업로드됨';
+  if (status === 'cancelled' || status === 'canceled') return '중지됨';
   return status;
 }
 
@@ -193,7 +195,8 @@ export default function WorkListScreen() {
     const kind = inferFileKind(file);
     const meta = getKindMeta(kind);
     const date = formatDate(file.created_at);
-    const status = getStatusLabel(file.status);
+    const processStatus = getProcessStatus(file);
+    const status = getStatusLabel(processStatus);
 
     return (
       <TouchableOpacity
@@ -213,7 +216,7 @@ export default function WorkListScreen() {
             {[meta.label, date].filter(Boolean).join(' · ')}
           </Text>
         </View>
-        <Text style={[styles.fileListStatus, getStatusStyle(file.status)]} numberOfLines={1}>
+        <Text style={[styles.fileListStatus, getStatusStyle(processStatus)]} numberOfLines={1}>
           {status}
         </Text>
       </TouchableOpacity>

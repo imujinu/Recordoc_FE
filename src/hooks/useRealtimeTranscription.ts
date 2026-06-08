@@ -472,7 +472,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
       interval: 250,
       keepAwake: true,
       output: {
-        primary: { enabled: true, format: 'wav' },
+        primary: { enabled: false },
       },
       onAudioStream: sendAudioStream,
     };

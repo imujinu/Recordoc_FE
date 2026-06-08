@@ -1,5 +1,5 @@
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
-import { loginWithGoogleIdToken } from '@/api/auth';
+import { loginWithGoogleAuthCode } from '@/api/auth';
 import { GOOGLE_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from '@/constants/config';
 import { OAuthProviderError, type OAuthProvider } from './types';
 
@@ -18,7 +18,7 @@ function configureGoogleSignIn() {
 
   GoogleSignin.configure({
     webClientId,
-    offlineAccess: false,
+    offlineAccess: true,
     scopes: ['profile', 'email'],
   });
 }
@@ -52,15 +52,15 @@ export const googleOAuthProvider: OAuthProvider = {
         return { type: 'cancelled' };
       }
 
-      const idToken = result.data.idToken;
-      if (!idToken) {
+      const authCode = result.data.serverAuthCode;
+      if (!authCode) {
         throw new OAuthProviderError(
           'unknown',
-          'Google 로그인 응답에 idToken이 없습니다. Web client id 설정을 확인해주세요.',
+          'Google 로그인 응답에 serverAuthCode가 없습니다. Web client id와 offline access 설정을 확인해주세요.',
         );
       }
 
-      await loginWithGoogleIdToken(idToken);
+      await loginWithGoogleAuthCode(authCode);
       return { type: 'success' };
     } catch (error) {
       const code = getErrorCode(error);
