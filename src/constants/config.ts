@@ -1,6 +1,6 @@
 const env = process.env as Record<string, string | undefined>;
 
-const DEFAULT_API_BASE_URL = 'http://172.30.1.2:8000';
+const DEFAULT_API_BASE_URL = 'http://192.168.0.52:8000';
 
 export const API_BASE_URL = env.EXPO_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 export const WS_BASE_URL = env.EXPO_PUBLIC_WS_BASE_URL ?? API_BASE_URL.replace(/^http/, 'ws');

@@ -13,8 +13,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   cancelFileProcess,
-  getTranscriptSummary,
+  fileDetailToSummaryResponse,
+  getFileDetail,
+  getFileTranscript,
+  getProcessStatus,
   processFile,
+  type FileTranscriptResponse,
   type ProcessStatus,
   type TranscriptSummaryContext,
   type TranscriptSummaryResponse,
@@ -26,7 +30,7 @@ type PdfTab = 'summary' | 'text' | 'qa';
 type ChatMessage = { role: 'user' | 'ai'; text: string };
 type PdfStatus = ProcessStatus;
 
-const VALID_STATUSES: PdfStatus[] = ['pending', 'uploaded', 'processing', 'completed', 'failed'];
+const VALID_STATUSES: PdfStatus[] = ['uploaded', 'processing', 'completed', 'failed', 'cancelled'];
 const TABS: { key: PdfTab; label: string }[] = [
   { key: 'summary', label: '요약' },
   { key: 'text', label: '전체 텍스트' },
@@ -39,8 +43,8 @@ function getSearchParam(value: string | string[] | undefined): string {
 }
 
 function normalizeStatus(status: string | undefined): PdfStatus {
-  if (status === 'canceled' || status === 'cancelled') return 'uploaded';
-  return VALID_STATUSES.includes(status as PdfStatus) ? (status as PdfStatus) : 'pending';
+  if (status === 'canceled' || status === 'cancelled') return 'cancelled';
+  return VALID_STATUSES.includes(status as PdfStatus) ? (status as PdfStatus) : 'uploaded';
 }
 
 function cleanText(value: unknown): string {
@@ -108,6 +112,16 @@ function getFullText(data: TranscriptSummaryResponse | null): string {
     .join('\n\n');
 }
 
+function getTranscriptFullText(data: FileTranscriptResponse | null): string {
+  const directText = cleanText(data?.full_text);
+  if (directText) return directText;
+
+  return (data?.segments ?? [])
+    .map((segment) => cleanText(segment.text))
+    .filter(Boolean)
+    .join('\n');
+}
+
 function getKeyPoints(data: TranscriptSummaryResponse | null): string[] {
   return (data?.overview?.key_points ?? []).map(normalizeTextItem).filter(Boolean);
 }
@@ -140,6 +154,9 @@ export default function PDFScreen() {
   const [summaryData, setSummaryData] = useState<TranscriptSummaryResponse | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  const [transcriptData, setTranscriptData] = useState<FileTranscriptResponse | null>(null);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState('');
   const [canceling, setCanceling] = useState(false);
   const [chats, setChats] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -157,10 +174,19 @@ export default function PDFScreen() {
   }, []);
 
   useEffect(() => {
+    setTranscriptData(null);
+    setTranscriptError('');
+    setTranscriptLoading(false);
+  }, [transcriptId]);
+
+  useEffect(() => {
     if (!isCompleted || !transcriptId) {
       setSummaryData(null);
       setSummaryError('');
       setSummaryLoading(false);
+      setTranscriptData(null);
+      setTranscriptError('');
+      setTranscriptLoading(false);
       return;
     }
 
@@ -168,8 +194,12 @@ export default function PDFScreen() {
     setSummaryLoading(true);
     setSummaryError('');
 
-    getTranscriptSummary(transcriptId, abortController.signal)
-      .then((data) => setSummaryData(data))
+    getFileDetail(transcriptId, abortController.signal)
+      .then((data) => {
+        const nextStatus = getProcessStatus(data);
+        setPdfStatus(nextStatus);
+        setSummaryData(nextStatus === 'completed' ? fileDetailToSummaryResponse(data) : null);
+      })
       .catch((error) => {
         if (abortController.signal.aborted) return;
         setSummaryError(error instanceof Error ? error.message : '문서 데이터를 불러오지 못했습니다.');
@@ -180,6 +210,28 @@ export default function PDFScreen() {
 
     return () => abortController.abort();
   }, [isCompleted, transcriptId]);
+
+  useEffect(() => {
+    if (!isCompleted || activeTab !== 'text' || !transcriptId || transcriptData || transcriptLoading) {
+      return;
+    }
+
+    const abortController = new AbortController();
+    setTranscriptLoading(true);
+    setTranscriptError('');
+
+    getFileTranscript(transcriptId, abortController.signal)
+      .then((data) => setTranscriptData(data))
+      .catch((error) => {
+        if (abortController.signal.aborted) return;
+        setTranscriptError(error instanceof Error ? error.message : '전체 원문을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) setTranscriptLoading(false);
+      });
+
+    return () => abortController.abort();
+  }, [activeTab, isCompleted, transcriptData, transcriptId, transcriptLoading]);
 
   const handleGenerate = async () => {
     if (pdfStatus === 'processing') return;
@@ -193,10 +245,12 @@ export default function PDFScreen() {
     processAbortRef.current?.abort();
     processAbortRef.current = abortController;
     setPdfStatus('processing');
+    setTranscriptData(null);
+    setTranscriptError('');
 
     try {
       const result = await processFile(transcriptId, abortController.signal);
-      setPdfStatus(normalizeStatus(result.status));
+      setPdfStatus(getProcessStatus(result));
     } catch (error) {
       if (abortController.signal.aborted) {
         setPdfStatus(statusBeforeProcessingRef.current);
@@ -215,13 +269,15 @@ export default function PDFScreen() {
     setCanceling(true);
     try {
       const result = await cancelFileProcess(transcriptId);
-      const nextStatus = normalizeStatus(result.status);
+      const nextStatus = getProcessStatus(result);
       statusBeforeProcessingRef.current = nextStatus;
       processAbortRef.current?.abort();
       processAbortRef.current = null;
       setPdfStatus(nextStatus);
       setSummaryData(null);
       setSummaryError('');
+      setTranscriptData(null);
+      setTranscriptError('');
     } catch (error) {
       Alert.alert('중지 실패', error instanceof Error ? error.message : '문서 데이터 생성을 중지하지 못했습니다.');
     } finally {
@@ -282,7 +338,7 @@ export default function PDFScreen() {
           {activeTab === 'summary' && (
             <SummaryTab data={summaryData} loading={summaryLoading} error={summaryError} fallbackTitle={fallbackTitle} />
           )}
-          {activeTab === 'text' && <TextTab data={summaryData} loading={summaryLoading} error={summaryError} />}
+          {activeTab === 'text' && <TextTab data={transcriptData} loading={transcriptLoading} error={transcriptError} />}
           {activeTab === 'qa' && (
             <QATab
               chats={chats}
@@ -315,7 +371,7 @@ function SummaryTab({
   error,
   fallbackTitle,
 }: {
-  data: TranscriptSummaryResponse | null;
+  data: FileTranscriptResponse | null;
   loading: boolean;
   error: string;
   fallbackTitle: string;
@@ -402,29 +458,30 @@ function TextTab({
   loading,
   error,
 }: {
-  data: TranscriptSummaryResponse | null;
+  data: FileTranscriptResponse | null;
   loading: boolean;
   error: string;
 }) {
-  const contexts = getContexts(data);
-  const fullText = getFullText(data);
+  const segments = data?.segments?.filter((segment) => cleanText(segment.text)) ?? [];
+  const fullText = getTranscriptFullText(data);
+  const lastSegment = segments[segments.length - 1];
 
   if (loading) return <MessageState icon="sync-outline" title="전체 텍스트를 불러오는 중입니다" />;
   if (error) return <MessageState icon="alert-circle-outline" title="전체 텍스트를 불러오지 못했습니다" description={error} tone="failed" />;
-  if (contexts.length === 0 && !fullText) return <MessageState icon="document-text-outline" title="표시할 텍스트가 없습니다" />;
+  if (segments.length === 0 && !fullText) return <MessageState icon="document-text-outline" title="표시할 텍스트가 없습니다" />;
 
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.content}>
-        {contexts.length > 0 ? (
-          contexts.map((context, index) => (
-            <View key={`${index}-${context.topic ?? context.start_seconds}`} style={styles.scriptBlock}>
+        {segments.length > 0 ? (
+          segments.map((segment, index) => (
+            <View key={`${segment.segment_index ?? index}-${segment.text}`} style={styles.scriptBlock}>
               <Text style={styles.scriptTime}>
-                {formatSeconds(context.start_seconds)}
-                {context.end_seconds != null ? ` - ${formatSeconds(context.end_seconds)}` : ''}
+                {formatSeconds(segment.start_seconds)}
+                {segment.end_seconds != null ? ` - ${formatSeconds(segment.end_seconds)}` : ''}
               </Text>
-              {cleanText(context.topic) ? <Text style={styles.scriptTitle}>{context.topic}</Text> : null}
-              <Text style={styles.scriptBody}>{cleanText(context.content)}</Text>
+              {cleanText(segment.speaker_label) ? <Text style={styles.scriptTitle}>{segment.speaker_label}</Text> : null}
+              <Text style={styles.scriptBody}>{cleanText(segment.text)}</Text>
             </View>
           ))
         ) : (
@@ -439,7 +496,7 @@ function TextTab({
         </View>
         <View style={styles.playerTime}>
           <Text style={styles.playerTimeCurrent}>00:00</Text>
-          <Text style={styles.playerTimeTotal}>{contexts.at(-1)?.end_seconds != null ? formatSeconds(contexts.at(-1)?.end_seconds) : '--:--'}</Text>
+          <Text style={styles.playerTimeTotal}>{lastSegment?.end_seconds != null ? formatSeconds(lastSegment.end_seconds) : '--:--'}</Text>
         </View>
       </View>
     </View>

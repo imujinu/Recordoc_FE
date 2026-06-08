@@ -48,7 +48,10 @@ function getKindMeta(kind: FileKind): {
 function getStatusLabel(status?: string | null): string {
   if (status === 'processing') return '처리 중';
   if (status === 'failed') return '실패';
-  return '완료';
+  if (status === 'completed' || status === 'done') return '완료';
+  if (status === 'uploaded') return '업로드됨';
+  if (status === 'cancelled' || status === 'canceled') return '중지됨';
+  return '업로드됨';
 }
 
 function getErrorMessage(error: unknown): string {
@@ -208,8 +211,9 @@ export default function FolderScreen() {
         {filteredFiles.map((file) => {
           const kind = inferFileKind(file);
           const meta = getKindMeta(kind);
-          const isProcessing = file.status === 'processing';
-          const isFailed = file.status === 'failed';
+          const processStatus = getProcessStatus(file);
+          const isProcessing = processStatus === 'processing';
+          const isFailed = processStatus === 'failed';
 
           return (
             <TouchableOpacity
@@ -232,7 +236,7 @@ export default function FolderScreen() {
                 ]}
                 numberOfLines={1}
               >
-                {`${meta.label} · ${getStatusLabel(file.status)}`}
+                {`${meta.label} · ${getStatusLabel(processStatus)}`}
               </Text>
             </TouchableOpacity>
           );
