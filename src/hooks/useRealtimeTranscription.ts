@@ -395,7 +395,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
         firstAudioChunkLoggedRef.current = true;
       }
       const raw = audioDataToPCM16Buffer(event);
-    const amplified = amplifyPCM16(raw, 10.0);
+    const amplified = amplifyPCM16(raw, 5.0);
 
     const samples = new Int16Array(amplified);
     const max = Math.max(...Array.from(samples).map(Math.abs));

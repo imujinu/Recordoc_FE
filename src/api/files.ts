@@ -325,7 +325,7 @@ export async function getTranscriptSummary(
   transcriptId: string,
   signal?: AbortSignal,
 ): Promise<TranscriptSummaryResponse> {
-  const response = await authFetch(`${API_BASE_URL}/audio/transcripts/${encodeURIComponent(transcriptId)}/summary`, {
+  const response = await authFetch(`${API_BASE_URL}/files/${encodeURIComponent(transcriptId)}/summary`, {
     method: 'POST',
     signal,
   });
