@@ -3,6 +3,7 @@ import {
   AudioStudioModule,
   useAudioRecorder,
   type AudioDataEvent,
+  type AudioRecording,
   type RecordingConfig,
 } from '@siteed/audio-studio';
 
@@ -26,9 +27,23 @@ export interface RealtimeSummaryChunk {
   timeRange: string;
 }
 
+export interface RealtimeRecordingResult {
+  fileUri: string;
+  filename: string;
+  durationMs: number;
+  mimeType: string;
+}
+
+export interface RealtimeStopResult {
+  transcriptId: string | null;
+  segments: RealtimeTranscriptSegment[];
+  recording: RealtimeRecordingResult | null;
+}
+
 export interface UseRealtimeTranscriptionReturn {
   isConnected: boolean;
   isPaused: boolean;
+  hasTranscriptText: boolean;
   segments: RealtimeTranscriptSegment[];
   summaries: RealtimeSummaryChunk[];
   interimText: string;
@@ -36,7 +51,7 @@ export interface UseRealtimeTranscriptionReturn {
   start: () => Promise<void>;
   pause: () => void;
   resume: () => void;
-  stop: () => Promise<RealtimeTranscriptSegment[]>;
+  stop: () => Promise<RealtimeStopResult>;
 }
 
 type PermissionResponse = {
@@ -45,7 +60,7 @@ type PermissionResponse = {
 };
 
 type RealtimeServerMessage =
-  | { type: 'ready' }
+  | { type: 'ready'; transcript_id?: string }
   | {
       type: 'transcript';
       text?: string;
@@ -177,6 +192,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
 
   const [isConnected, setIsConnected] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [hasTranscriptText, setHasTranscriptText] = useState(false);
   const [segments, setSegments] = useState<RealtimeTranscriptSegment[]>([]);
   const [summaries, setSummaries] = useState<RealtimeSummaryChunk[]>([]);
   const [interimText, setInterimText] = useState('');
@@ -195,10 +211,12 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
   const lastEndRef = useRef(0);
   const nextLocalFinalIndexRef = useRef(0);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const transcriptIdRef = useRef<string | null>(null);
 
   const resetState = useCallback(() => {
     setIsConnected(false);
     setIsPaused(false);
+    setHasTranscriptText(false);
     setSegments([]);
     setSummaries([]);
     setInterimText('');
@@ -215,6 +233,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
     elapsedRef.current = 0;
     lastEndRef.current = 0;
     nextLocalFinalIndexRef.current = 0;
+    transcriptIdRef.current = null;
 
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
@@ -237,6 +256,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
 
     allSegmentsRef.current = [...allSegmentsRef.current, segment];
     segmentsRef.current = [...segmentsRef.current, segment];
+    setHasTranscriptText(true);
     setSegments([...segmentsRef.current]);
   }, []);
 
@@ -267,6 +287,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
       }
 
       interimRef.current = text;
+      setHasTranscriptText(true);
       setInterimText(text);
     },
     [appendFinalSegment]
@@ -437,6 +458,10 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
           try {
             const message = JSON.parse(String(event.data)) as RealtimeServerMessage;
             if (message.type === 'ready') {
+              transcriptIdRef.current =
+                typeof message.transcript_id === 'string' && message.transcript_id.trim()
+                  ? message.transcript_id.trim()
+                  : null;
               setIsConnected(true);
               if (!settled) {
                 settled = true;
@@ -499,7 +524,7 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
     }
   },
       output: {
-        primary: { enabled: false },
+        primary: { enabled: true, format: 'wav' },
       },
       onAudioStream: sendAudioStream,
     };
@@ -541,8 +566,14 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
     });
   }, [resumeRecording]);
 
-  const stop = useCallback(async (): Promise<RealtimeTranscriptSegment[]> => {
-    if (!isRunningRef.current) return allSegmentsRef.current;
+  const stop = useCallback(async (): Promise<RealtimeStopResult> => {
+    if (!isRunningRef.current) {
+      return {
+        transcriptId: transcriptIdRef.current,
+        segments: allSegmentsRef.current,
+        recording: null,
+      };
+    }
 
     isRunningRef.current = false;
     isPausedRef.current = false;
@@ -553,8 +584,9 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
       timerIntervalRef.current = null;
     }
 
+    let recording: AudioRecording | null = null;
     try {
-      await stopRecording();
+      recording = await stopRecording();
     } catch (error) {
       console.warn('[Realtime] 녹음 종료 오류:', error);
     } finally {
@@ -569,12 +601,24 @@ export function useRealtimeTranscription(): UseRealtimeTranscriptionReturn {
     wsRef.current = null;
     setIsConnected(false);
 
-    return allSegmentsRef.current;
+    return {
+      transcriptId: transcriptIdRef.current,
+      segments: allSegmentsRef.current,
+      recording: recording
+        ? {
+            fileUri: recording.fileUri,
+            filename: recording.filename,
+            durationMs: recording.durationMs,
+            mimeType: recording.mimeType,
+          }
+        : null,
+    };
   }, [commitInterimText, stopRecording]);
 
   return {
     isConnected,
     isPaused,
+    hasTranscriptText,
     segments,
     summaries,
     interimText,

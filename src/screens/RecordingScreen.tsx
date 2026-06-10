@@ -127,6 +127,7 @@ export default function RecordingScreen() {
   const {
     isConnected,
     isPaused,
+    hasTranscriptText,
     segments,
     summaries,
     interimText,
@@ -265,34 +266,66 @@ export default function RecordingScreen() {
   };
 
   const handleStop = (fileName: string) => {
+    if (!hasTranscriptText) {
+      setSaveModal(false);
+      Alert.alert('저장 불가', '녹음된 내용이 없습니다.');
+      return;
+    }
+
     setSaveModal(false);
     setIsSaving(true);
-    shouldLeaveRef.current = true;
 
-    const saveTask = (async () => {
+    void (async () => {
       try {
         const result = await stop();
-        await saveRealtimeTranscript({
-          // 백엔드 유효 도메인 6종(general/legal/medical/science/it/religion) 중 하나여야 함.
-          // 'meeting'/'lecture'는 미정규화 경로라 그대로 저장되어 메타데이터 품질 저하 → 'general' 사용.
-          domain_type: 'general',
-          title: fileName, // 백엔드 필수 필드
-          duration_seconds: elapsedSeconds,
-          segments: result.map((seg) => ({
+        const recording = result.recording;
+        const fallbackSegments = result.segments
+          .filter((seg) => seg.text.trim())
+          .map((seg) => ({
             segment_index: seg.finalIndex,
             start_seconds: Math.floor(seg.startSeconds),
             end_seconds: Math.floor(seg.endSeconds),
-            text: seg.text,
-          })),
+            text: seg.text.trim(),
+          }));
+
+        if (fallbackSegments.length === 0) {
+          Alert.alert('저장 불가', '녹음된 내용이 없습니다.');
+          setIsSaving(false);
+          return;
+        }
+
+        if (!result.transcriptId) {
+          throw new Error('Transcript ID is missing. Please try recording again.');
+        }
+
+        if (!recording?.fileUri) {
+          throw new Error('Recorded audio file is missing. Please try recording again.');
+        }
+
+        await saveRealtimeTranscript({
+          transcriptId: result.transcriptId,
+          title: fileName,
+          durationSeconds: Math.max(
+            0,
+            Math.round((recording.durationMs || elapsedSeconds * 1000) / 1000)
+          ),
+          recording: {
+            fileUri: recording.fileUri,
+            filename: recording.filename,
+            mimeType: recording.mimeType,
+            durationMs: recording.durationMs,
+          },
+          segments: fallbackSegments,
         });
+
+        shouldLeaveRef.current = true;
+        router.back();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
         Alert.alert('저장 실패', msg);
+        setIsSaving(false);
       }
     })();
-
-    router.back();
-    void saveTask;
   };
 
   const handleDiscard = async () => {
