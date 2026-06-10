@@ -17,7 +17,7 @@ import { Colors } from '@/styles/theme';
 import StopRecordingModal from '@/components/StopRecordingModal';
 import SaveRecordingModal from '@/components/SaveRecordingModal';
 import { useRealtimeTranscription } from '@/hooks/useRealtimeTranscription';
-import { saveRealtimeTranscript } from '@/api/realtime';
+import { saveRealtimeTranscript, type SaveRealtimePayload } from '@/api/realtime';
 import { inferFileKind, listFiles, type FileListItem } from '@/api/files';
 import {
   ContextPopup,
@@ -302,7 +302,7 @@ export default function RecordingScreen() {
           throw new Error('Recorded audio file is missing. Please try recording again.');
         }
 
-        await saveRealtimeTranscript({
+        const payload: SaveRealtimePayload = {
           transcriptId: result.transcriptId,
           title: fileName,
           durationSeconds: Math.max(
@@ -316,10 +316,15 @@ export default function RecordingScreen() {
             durationMs: recording.durationMs,
           },
           segments: fallbackSegments,
-        });
+        };
 
         shouldLeaveRef.current = true;
         router.back();
+
+        void saveRealtimeTranscript(payload).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : '???以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.';
+          Alert.alert('????ㅽ뙣', msg);
+        });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.';
         Alert.alert('저장 실패', msg);

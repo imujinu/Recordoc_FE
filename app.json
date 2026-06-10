@@ -24,9 +24,19 @@
       "edgeToEdgeEnabled": false,
       "predictiveBackGestureEnabled": false,
       "permissions": [
+        "RECORD_AUDIO",
         "RECORD_AUDIO"
       ],
       "blockedPermissions": [
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_ADVERTISE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_AUDIO",
         "android.permission.READ_PHONE_STATE",
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
@@ -56,6 +66,18 @@
       ],
       "expo-font",
       "@react-native-google-signin/google-signin"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "08316434-265c-400d-8a54-754619cc7737"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/08316434-265c-400d-8a54-754619cc7737"
+    }
   }
 }
